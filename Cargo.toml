@@ -13,6 +13,8 @@ tokio = { version = "1", features = ["full"] }
 tokio-stream = { version = "0.1", features = ["sync"] }
 futures = "0.3"
 
+
+
 # HTTP client
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 
@@ -123,3 +125,9 @@ tempfile = "3"
 [features]
 default = []
 integration = []
+
+[profile.release]
+lto = false
+codegen-units = 64
+panic = "abort"
+strip = true

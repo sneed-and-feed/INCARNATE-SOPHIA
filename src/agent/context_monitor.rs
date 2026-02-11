@@ -162,13 +162,14 @@ pub fn scrub_context(text: &str) -> String {
     }
     
     // 4. Remove divider debris and leaking internal instructions
-    // 4. Remove divider debris and leaking internal instructions
-    // Handles [glyphwave], [glyphwave"], glyphwave">, <glyphwave>, etc.
+    
+    // Specific aesthetic refinement: replace glyphwave"> with > as requested
+    cleaned = cleaned.replace("glyphwave\">", ">");
+
+    // Handles [glyphwave], [glyphwave"], <glyphwave>, etc.
     if let Ok(re) = Regex::new(r#"(?i)(?:\[|<|&lt;)?/?glyphwave(?:\]|>|&gt;|"|&quot;)*"#) {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
-    // Also scrub specific broken artifacts reported by user
-    cleaned = cleaned.replace("glyphwave\">", "");
 
     if let Ok(re) = Regex::new(r"(?m)^[-=_]{3,}\s*$\n?") {
         cleaned = re.replace_all(&cleaned, "").to_string();
@@ -281,5 +282,11 @@ mod tests {
         assert!(!output.contains("\u{0361}"));
         assert!(output.contains("Hello"));
         assert!(output.contains("Actual content"));
+        #[test]
+    fn test_scrub_glyphwave_aesthetic() {
+        let input = "Burenyu! glyphwave\">meow!";
+        let output = scrub_context(input);
+        assert_eq!(output, "Burenyu! >meow!");
     }
+}
 }
