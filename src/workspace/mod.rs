@@ -1,0 +1,552 @@
+//! Workspace and memory system (OpenClaw-inspired).
+//!
+//! The workspace provides persistent memory for agents with a flexible
+//! filesystem-like structure. Agents can create arbitrary markdown file
+//! hierarchies that get indexed for full-text and semantic search.
+//!
+//! # Filesystem-like API
+//!
+//! ```text
+//! workspace/
+//! ├── README.md              <- Root runbook/index
+//! ├── MEMORY.md              <- Long-term curated memory
+//! ├── HEARTBEAT.md           <- Periodic checklist
+//! ├── context/               <- Identity and context
+//! │   ├── vision.md
+//! │   └── priorities.md
+//! ├── daily/                 <- Daily logs
+//! │   ├── 2024-01-15.md
+//! │   └── 2024-01-16.md
+//! ├── projects/              <- Arbitrary structure
+//! │   └── alpha/
+//! │       ├── README.md
+//! │       └── notes.md
+//! └── ...
+//! ```
+//!
+//! # Key Operations
+//!
+//! - `read(path)` - Read a file
+//! - `write(path, content)` - Create or update a file
+//! - `append(path, content)` - Append to a file
+//! - `list(dir)` - List directory contents
+//! - `delete(path)` - Delete a file
+//! - `search(query)` - Full-text + semantic search across all files
+//!
+//! # Key Patterns
+//!
+//! 1. **Memory is persistence**: If you want to remember something, write it
+//! 2. **Flexible structure**: Create any directory/file hierarchy you need
+//! 3. **Self-documenting**: Use README.md files to describe directory structure
+//! 4. **Hybrid search**: Vector similarity + BM25 full-text via RRF
+
+mod chunker;
+mod document;
+mod embeddings;
+mod repository;
+mod search;
+
+pub use chunker::{ChunkConfig, chunk_document};
+pub use document::{MemoryChunk, MemoryDocument, WorkspaceEntry, paths};
+pub use embeddings::{EmbeddingProvider, GoogleEmbeddings, MockEmbeddings, NearAiEmbeddings, OpenAiEmbeddings, LocalEmbeddings};
+pub use repository::Repository;
+pub use search::{SearchConfig, SearchResult};
+
+use std::sync::Arc;
+
+use chrono::{NaiveDate, Utc};
+use deadpool_postgres::Pool;
+use uuid::Uuid;
+
+use crate::error::WorkspaceError;
+
+/// Default template seeded into HEARTBEAT.md on first access.
+///
+/// Intentionally comment-only so the heartbeat runner treats it as
+/// "effectively empty" and skips the LLM call until the user adds
+/// real tasks.
+const HEARTBEAT_SEED: &str = "\
+# Heartbeat Checklist
+
+<!-- Keep this file empty to skip heartbeat API calls.
+     Add tasks below when you want the agent to check something periodically.
+
+     Example:
+     - [ ] Check for unread emails needing a reply
+     - [ ] Review today's calendar for upcoming meetings
+     - [ ] Check CI build status for main branch
+-->";
+
+/// Workspace provides database-backed memory storage for an agent.
+///
+/// Each workspace is scoped to a user (and optionally an agent).
+/// Documents are persisted to PostgreSQL and indexed for search.
+pub struct Workspace {
+    /// User identifier (from channel).
+    user_id: String,
+    /// Optional agent ID for multi-agent isolation.
+    agent_id: Option<Uuid>,
+    /// Database repository.
+    repo: Repository,
+    /// Embedding provider for semantic search.
+    embeddings: Option<Arc<dyn EmbeddingProvider>>,
+}
+
+impl Workspace {
+    /// Create a new workspace for a user.
+    pub fn new(user_id: impl Into<String>, pool: Pool) -> Self {
+        Self {
+            user_id: user_id.into(),
+            agent_id: None,
+            repo: Repository::new(pool),
+            embeddings: None,
+        }
+    }
+
+    /// Create a workspace with a specific agent ID.
+    pub fn with_agent(mut self, agent_id: Uuid) -> Self {
+        self.agent_id = Some(agent_id);
+        self
+    }
+
+    /// Set the embedding provider for semantic search.
+    pub fn with_embeddings(mut self, provider: Arc<dyn EmbeddingProvider>) -> Self {
+        self.embeddings = Some(provider);
+        self
+    }
+
+    /// Get the user ID.
+    pub fn user_id(&self) -> &str {
+        &self.user_id
+    }
+
+    /// Get the agent ID.
+    pub fn agent_id(&self) -> Option<Uuid> {
+        self.agent_id
+    }
+
+    // ==================== File Operations ====================
+
+    /// Read a file by path.
+    ///
+    /// Returns the document if it exists, or an error if not found.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let doc = workspace.read("context/vision.md").await?;
+    /// println!("{}", doc.content);
+    /// ```
+    pub async fn read(&self, path: &str) -> Result<MemoryDocument, WorkspaceError> {
+        let path = normalize_path(path);
+        self.repo
+            .get_document_by_path(&self.user_id, self.agent_id, &path)
+            .await
+    }
+
+    /// Write (create or update) a file.
+    ///
+    /// Creates parent directories implicitly (they're virtual in the DB).
+    /// Re-indexes the document for search after writing.
+    ///
+    /// # Example
+    /// ```ignore
+    /// workspace.write("projects/alpha/README.md", "# Project Alpha\n\nDescription here.").await?;
+    /// ```
+    pub async fn write(&self, path: &str, content: &str) -> Result<MemoryDocument, WorkspaceError> {
+        let path = normalize_path(path);
+        let doc = self
+            .repo
+            .get_or_create_document_by_path(&self.user_id, self.agent_id, &path)
+            .await?;
+        self.repo.update_document(doc.id, content).await?;
+        self.reindex_document(doc.id).await?;
+
+        // Return updated doc
+        self.repo.get_document_by_id(doc.id).await
+    }
+
+    /// Append content to a file.
+    ///
+    /// Creates the file if it doesn't exist.
+    /// Adds a newline separator between existing and new content.
+    pub async fn append(&self, path: &str, content: &str) -> Result<(), WorkspaceError> {
+        let path = normalize_path(path);
+        let doc = self
+            .repo
+            .get_or_create_document_by_path(&self.user_id, self.agent_id, &path)
+            .await?;
+
+        let new_content = if doc.content.is_empty() {
+            content.to_string()
+        } else {
+            format!("{}\n{}", doc.content, content)
+        };
+
+        self.repo.update_document(doc.id, &new_content).await?;
+        self.reindex_document(doc.id).await?;
+        Ok(())
+    }
+
+    /// Check if a file exists.
+    pub async fn exists(&self, path: &str) -> Result<bool, WorkspaceError> {
+        let path = normalize_path(path);
+        match self
+            .repo
+            .get_document_by_path(&self.user_id, self.agent_id, &path)
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(WorkspaceError::DocumentNotFound { .. }) => Ok(false),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Delete a file.
+    ///
+    /// Also deletes associated chunks.
+    pub async fn delete(&self, path: &str) -> Result<(), WorkspaceError> {
+        let path = normalize_path(path);
+        self.repo
+            .delete_document_by_path(&self.user_id, self.agent_id, &path)
+            .await
+    }
+
+    /// List files and directories in a path.
+    ///
+    /// Returns immediate children (not recursive).
+    /// Use empty string or "/" for root directory.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let entries = workspace.list("projects/").await?;
+    /// for entry in entries {
+    ///     if entry.is_directory {
+    ///         println!("📁 {}/", entry.name());
+    ///     } else {
+    ///         println!("📄 {}", entry.name());
+    ///     }
+    /// }
+    /// ```
+    pub async fn list(&self, directory: &str) -> Result<Vec<WorkspaceEntry>, WorkspaceError> {
+        let directory = normalize_directory(directory);
+        self.repo
+            .list_directory(&self.user_id, self.agent_id, &directory)
+            .await
+    }
+
+    /// List all files recursively (flat list of all paths).
+    pub async fn list_all(&self) -> Result<Vec<String>, WorkspaceError> {
+        self.repo.list_all_paths(&self.user_id, self.agent_id).await
+    }
+
+    // ==================== Convenience Methods ====================
+
+    /// Get the main MEMORY.md document (long-term curated memory).
+    ///
+    /// Creates it if it doesn't exist.
+    pub async fn memory(&self) -> Result<MemoryDocument, WorkspaceError> {
+        self.read_or_create(paths::MEMORY).await
+    }
+
+    /// Get today's daily log.
+    ///
+    /// Daily logs are append-only and keyed by date.
+    pub async fn today_log(&self) -> Result<MemoryDocument, WorkspaceError> {
+        let today = Utc::now().date_naive();
+        self.daily_log(today).await
+    }
+
+    /// Get a daily log for a specific date.
+    pub async fn daily_log(&self, date: NaiveDate) -> Result<MemoryDocument, WorkspaceError> {
+        let path = format!("daily/{}.md", date.format("%Y-%m-%d"));
+        self.read_or_create(&path).await
+    }
+
+    /// Get the heartbeat checklist (HEARTBEAT.md).
+    ///
+    /// Returns the DB-stored checklist if it exists, otherwise falls back
+    /// to the in-memory seed template. The seed is never written to the
+    /// database; the user creates the real file via `memory_write` when
+    /// they actually want periodic checks. The seed content is all HTML
+    /// comments, which the heartbeat runner treats as "effectively empty"
+    /// and skips the LLM call.
+    pub async fn heartbeat_checklist(&self) -> Result<Option<String>, WorkspaceError> {
+        match self.read(paths::HEARTBEAT).await {
+            Ok(doc) => Ok(Some(doc.content)),
+            Err(WorkspaceError::DocumentNotFound { .. }) => Ok(Some(HEARTBEAT_SEED.to_string())),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Helper to read or create a file.
+    async fn read_or_create(&self, path: &str) -> Result<MemoryDocument, WorkspaceError> {
+        self.repo
+            .get_or_create_document_by_path(&self.user_id, self.agent_id, path)
+            .await
+    }
+
+    // ==================== Memory Operations ====================
+
+    /// Append an entry to the main MEMORY.md document.
+    ///
+    /// This is for important facts, decisions, and preferences worth
+    /// remembering long-term.
+    pub async fn append_memory(&self, entry: &str) -> Result<(), WorkspaceError> {
+        // Use double newline for memory entries (semantic separation)
+        let doc = self.memory().await?;
+        let new_content = if doc.content.is_empty() {
+            entry.to_string()
+        } else {
+            format!("{}\n\n{}", doc.content, entry)
+        };
+        self.repo.update_document(doc.id, &new_content).await?;
+        self.reindex_document(doc.id).await?;
+        Ok(())
+    }
+
+    /// Append an entry to today's daily log.
+    ///
+    /// Daily logs are raw, append-only notes for the current day.
+    pub async fn append_daily_log(&self, entry: &str) -> Result<(), WorkspaceError> {
+        let today = Utc::now().date_naive();
+        let path = format!("daily/{}.md", today.format("%Y-%m-%d"));
+        let timestamp = Utc::now().format("%H:%M:%S");
+        let timestamped_entry = format!("[{}] {}", timestamp, entry);
+        self.append(&path, &timestamped_entry).await
+    }
+
+    // ==================== System Prompt ====================
+    /// Seed identity files from the local filesystem if they are missing.
+    ///
+    /// This ensures Sophia's core persona is preserved even after a fresh
+    /// database migration.
+    pub async fn seed_identity(&self) -> Result<(), WorkspaceError> {
+        let identity_files = [
+            paths::AGENTS,
+            paths::SOUL,
+            paths::IDENTITY,
+            paths::USER,
+            paths::README,
+        ];
+
+        for path in identity_files {
+            // Check if file exists in workspace FIRST
+            // ALWAYS try to load from local filesystem and overwrite DB to ensure disk is source of truth
+            if let Ok(content) = tokio::fs::read_to_string(path).await {
+                if !content.trim().is_empty() {
+                    tracing::info!("Syncing workspace file from disk: {}", path);
+                    self.write(path, &content).await?;
+                }
+            } else if !self.exists(path).await? {
+                 // If not on disk, maybe we have a default? (Current logic implies no defaults other than what's on disk)
+                 // Just keep existing behavior of doing nothing if not on disk and not in DB.
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Build the system prompt from identity files.
+    ///
+    /// Loads AGENTS.md, SOUL.md, USER.md, and IDENTITY.md to compose
+    /// the agent's system prompt.
+    pub async fn system_prompt(&self) -> Result<String, WorkspaceError> {
+        let mut parts = Vec::new();
+
+        // Load identity files in order of importance
+        let identity_files = [
+            (paths::AGENTS, "## Agent Instructions"),
+            (paths::SOUL, "## Core Values"),
+            (paths::USER, "## User Context"),
+            (paths::IDENTITY, "## Identity"),
+        ];
+
+        for (path, header) in identity_files {
+            if let Ok(doc) = self.read(path).await {
+                if !doc.content.is_empty() {
+                    parts.push(format!("{}\n\n{}", header, doc.content));
+                }
+            }
+        }
+
+        // Add today's memory context (last 2 days of daily logs)
+        let today = Utc::now().date_naive();
+        let yesterday = today.pred_opt().unwrap_or(today);
+
+        for date in [today, yesterday] {
+            if let Ok(doc) = self.daily_log(date).await {
+                if !doc.content.is_empty() {
+                    let header = if date == today {
+                        "## Today's Notes"
+                    } else {
+                        "## Yesterday's Notes"
+                    };
+                    parts.push(format!("{}\n\n{}", header, doc.content));
+                }
+            }
+        }
+
+        Ok(parts.join("\n\n---\n\n"))
+    }
+
+    // ==================== Search ====================
+
+    /// Hybrid search across all memory documents.
+    ///
+    /// Combines full-text search (BM25) with semantic search (vector similarity)
+    /// using Reciprocal Rank Fusion (RRF).
+    pub async fn search(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>, WorkspaceError> {
+        self.search_with_config(query, SearchConfig::default().with_limit(limit))
+            .await
+    }
+
+    /// Search with custom configuration.
+    pub async fn search_with_config(
+        &self,
+        query: &str,
+        config: SearchConfig,
+    ) -> Result<Vec<SearchResult>, WorkspaceError> {
+        // Generate embedding for semantic search if provider available
+        let embedding = if let Some(ref provider) = self.embeddings {
+            Some(
+                provider
+                    .embed(query)
+                    .await
+                    .map_err(|e| WorkspaceError::EmbeddingFailed {
+                        reason: e.to_string(),
+                    })?,
+            )
+        } else {
+            None
+        };
+
+        self.repo
+            .hybrid_search(
+                &self.user_id,
+                self.agent_id,
+                query,
+                embedding.as_deref(),
+                &config,
+            )
+            .await
+    }
+
+    // ==================== Indexing ====================
+
+    /// Re-index a document (chunk and generate embeddings).
+    async fn reindex_document(&self, document_id: Uuid) -> Result<(), WorkspaceError> {
+        // Get the document
+        let doc = self.repo.get_document_by_id(document_id).await?;
+
+        // Chunk the content
+        let chunks = chunk_document(&doc.content, ChunkConfig::default());
+
+        // Delete old chunks
+        self.repo.delete_chunks(document_id).await?;
+
+        // Insert new chunks
+        for (index, content) in chunks.into_iter().enumerate() {
+            // Generate embedding if provider available
+            let embedding = if let Some(ref provider) = self.embeddings {
+                match provider.embed(&content).await {
+                    Ok(emb) => Some(emb),
+                    Err(e) => {
+                        tracing::warn!("Failed to generate embedding: {}", e);
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            self.repo
+                .insert_chunk(document_id, index as i32, &content, embedding.as_deref())
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Generate embeddings for chunks that don't have them yet.
+    ///
+    /// This is useful for backfilling embeddings after enabling the provider.
+    pub async fn backfill_embeddings(&self) -> Result<usize, WorkspaceError> {
+        let Some(ref provider) = self.embeddings else {
+            return Ok(0);
+        };
+
+        let chunks = self
+            .repo
+            .get_chunks_without_embeddings(&self.user_id, self.agent_id, 100)
+            .await?;
+
+        let mut count = 0;
+        for chunk in chunks {
+            match provider.embed(&chunk.content).await {
+                Ok(embedding) => {
+                    self.repo
+                        .update_chunk_embedding(chunk.id, &embedding)
+                        .await?;
+                    count += 1;
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to embed chunk {}: {}", chunk.id, e);
+                }
+            }
+        }
+
+        Ok(count)
+    }
+}
+
+/// Normalize a file path (remove leading/trailing slashes, collapse //).
+fn normalize_path(path: &str) -> String {
+    let path = path.trim().trim_matches('/');
+    // Collapse multiple slashes
+    let mut result = String::new();
+    let mut last_was_slash = false;
+    for c in path.chars() {
+        if c == '/' {
+            if !last_was_slash {
+                result.push(c);
+            }
+            last_was_slash = true;
+        } else {
+            result.push(c);
+            last_was_slash = false;
+        }
+    }
+    result
+}
+
+/// Normalize a directory path (ensure no trailing slash for consistency).
+fn normalize_directory(path: &str) -> String {
+    let path = normalize_path(path);
+    path.trim_end_matches('/').to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_path() {
+        assert_eq!(normalize_path("foo/bar"), "foo/bar");
+        assert_eq!(normalize_path("/foo/bar/"), "foo/bar");
+        assert_eq!(normalize_path("foo//bar"), "foo/bar");
+        assert_eq!(normalize_path("  /foo/  "), "foo");
+        assert_eq!(normalize_path("README.md"), "README.md");
+    }
+
+    #[test]
+    fn test_normalize_directory() {
+        assert_eq!(normalize_directory("foo/bar/"), "foo/bar");
+        assert_eq!(normalize_directory("foo/bar"), "foo/bar");
+        assert_eq!(normalize_directory("/"), "");
+        assert_eq!(normalize_directory(""), "");
+    }
+}

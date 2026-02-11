@@ -1,0 +1,64 @@
+# Rust / Cargo
+target/
+**/target/
+**/*.rs.bk
+Cargo.lock
+
+# Environment / Secrets
+.env
+.env.local
+.env.*.local
+
+# Logs and Data
+logs/
+**/logs/
+*.log
+chaos_report.txt
+output.txt
+physics_log_clowngirl.txt
+
+# OS / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+*.exe
+*.pdb
+*.dll
+*.lib
+*.exp
+*.rlib
+*.rmeta
+*.d
+*.pyd
+
+# Sophia Specifics
+backups/
+.fastembed_cache/
+.claude/
+! .claude/commands/
+! glyph_simple.exe
+! ironclaw.png
+
+# Python Helpers (Legacy/Tools)
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.mypy_cache/
+.pytest_cache/

@@ -1,0 +1,521 @@
+/* IronClaw Web Gateway - Neco-Arc Edition (Refined) */
+
+:root {
+  /* Neco Palette */
+  --bg: #2b1d38;
+  /* Deep Purple */
+  --bg-secondary: #3d2952;
+  /* Medium Purple */
+  --bg-tertiary: #1a1122;
+  /* Darker Purple */
+  --border: #ffd700;
+  /* Gold */
+
+  /* Text */
+  --text: #f0e6fa;
+  /* Lavender White */
+  --text-secondary: #c4a6d1;
+  /* Muted Lavender */
+  --text-dim: #8a7599;
+
+  /* Accents */
+  --accent: #ffd700;
+  /* Gold */
+  --accent-hover: #ffec8b;
+  /* Pale Gold */
+  --success: #00ff41;
+  /* Green */
+  --danger: #ff003c;
+  /* Red */
+
+  /* UI Elements */
+  --code-bg: #150f1a;
+  --radius: 8px;
+  --shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+
+  /* Typography */
+  --font-mono: "Consolas", "Monaco", monospace;
+  --font-ui: "Comic Sans MS", "Chalkboard SE", "Segoe UI", sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  line-height: 1.5;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  /* App handles scrolling */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Background Pattern */
+body::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image:
+    radial-gradient(circle at 15% 50%, rgba(255, 215, 0, 0.03) 0%, transparent 25%),
+    radial-gradient(circle at 85% 30%, rgba(188, 19, 254, 0.03) 0%, transparent 25%);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Auth Screen */
+#auth-screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--bg);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 9999;
+  gap: 20px;
+}
+
+#auth-screen h1 {
+  font-size: 3rem;
+  color: var(--accent);
+  text-shadow: 0 0 10px rgba(255, 215, 0, 0.4);
+}
+
+.auth-form {
+  display: flex;
+  gap: 10px;
+  background: var(--bg-secondary);
+  padding: 20px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+/* Main Layout */
+#app {
+  display: none;
+  /* Hidden until auth */
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+/* Tab Bar - Standard Horizontal */
+.tab-bar {
+  flex: 0 0 50px;
+  display: flex;
+  align-items: flex-end;
+  /* Align tabs to bottom of bar */
+  background-color: var(--bg-secondary);
+  border-bottom: 2px solid var(--border);
+  padding: 0 20px;
+  gap: 5px;
+}
+
+.tab-bar button {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--text-dim);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  color: var(--text-secondary);
+  padding: 8px 20px;
+  font-family: var(--font-ui);
+  font-weight: bold;
+  cursor: pointer;
+  height: 40px;
+  transition: all 0.2s;
+}
+
+.tab-bar button:hover {
+  background: var(--bg);
+  color: var(--accent);
+}
+
+.tab-bar button.active {
+  background: var(--bg);
+  color: var(--accent);
+  border-color: var(--border);
+  border-bottom: 2px solid var(--bg);
+  /* Merge with body */
+  margin-bottom: -2px;
+  /* Push down to cover border */
+  height: 42px;
+  /* Grow slightly */
+  z-index: 10;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--success);
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  background: var(--success);
+  border-radius: 50%;
+  box-shadow: 0 0 5px var(--success);
+}
+
+/* Tab Panels */
+.tab-panel {
+  display: none;
+  flex: 1;
+  overflow: hidden;
+  /* Internal scrolling */
+  position: relative;
+}
+
+.tab-panel.active {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Chat Tab */
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  position: relative;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.message {
+  max-width: 80%;
+  padding: 15px;
+  font-size: 1rem;
+  line-height: 1.6;
+  position: relative;
+}
+
+.message.user {
+  align-self: flex-end;
+  background: rgba(188, 19, 254, 0.15);
+  /* Transparent Purple */
+  border: 1px solid var(--text-dim);
+  border-radius: 12px 12px 0 12px;
+  color: var(--text);
+}
+
+.message.agent {
+  align-self: flex-start;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px 12px 12px 0;
+  color: var(--text);
+}
+
+.chat-input {
+  flex: 0 0 auto;
+  padding: 20px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 10px;
+}
+
+/* Other Containers (Memory, Jobs, Logs, Ext) */
+.memory-container,
+.jobs-container,
+.logs-container,
+.extensions-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Memory Sidebar Layout */
+.memory-container {
+  display: flex;
+  gap: 20px;
+  overflow: hidden;
+  /* Container fixed, children scroll */
+}
+
+.memory-sidebar {
+  flex: 0 0 300px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+}
+
+.search-box {
+  padding: 10px;
+  border-bottom: 1px solid var(--text-dim);
+}
+
+.memory-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+}
+
+.memory-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-secondary);
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.memory-breadcrumb {
+  padding: 10px 15px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--text-dim);
+  font-family: var(--font-mono);
+  color: var(--accent);
+}
+
+.memory-viewer {
+  flex: 1;
+  overflow-y: auto;
+  padding: 15px;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  color: var(--text);
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-secondary);
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+th,
+td {
+  padding: 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--bg);
+}
+
+th {
+  background: var(--bg-tertiary);
+  color: var(--accent);
+  text-transform: uppercase;
+  font-size: 0.9rem;
+}
+
+tr:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Logs */
+.logs-output {
+  height: calc(100vh - 180px);
+  /* Approx height */
+  background: #000;
+  border: 1px solid var(--text-dim);
+  padding: 10px;
+  overflow-y: auto;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+}
+
+.log-entry {
+  padding: 2px 0;
+  border-bottom: 1px solid #222;
+  display: flex;
+  gap: 10px;
+}
+
+.log-ts {
+  color: #666;
+}
+
+.log-level {
+  font-weight: bold;
+  width: 50px;
+}
+
+.level-INFO {
+  color: var(--success);
+}
+
+.level-WARN {
+  color: var(--accent);
+}
+
+.level-ERROR {
+  color: var(--danger);
+}
+
+.log-target {
+  color: var(--text-secondary);
+  width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-msg {
+  color: var(--text);
+  flex: 1;
+}
+
+/* Inputs & Buttons */
+input,
+textarea,
+select {
+  width: 100%;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--text-dim);
+  color: var(--text);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 5px rgba(255, 215, 0, 0.3);
+}
+
+button {
+  padding: 10px 20px;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: 6px;
+  font-weight: bold;
+  cursor: pointer;
+  font-family: var(--font-ui);
+}
+
+button:hover {
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bg-secondary);
+  border: 1px solid var(--text-dim);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+}
+
+/* Animations - Neco-Arc Edition */
+@keyframes blink {
+  0% {
+    opacity: 0.2;
+  }
+
+  20% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0.2;
+  }
+}
+
+.thinking-dots {
+  display: inline-block;
+  margin-left: 4px;
+}
+
+.thinking-dots span {
+  animation-name: blink;
+  animation-duration: 1.4s;
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+}
+
+.thinking-dots span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.thinking-dots span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+/* Glyphwave - The purr effect */
+@keyframes glyphwave {
+  0% {
+    text-shadow: 2px 0 0 var(--accent), -2px 0 0 var(--danger);
+    transform: skew(0deg);
+  }
+
+  25% {
+    text-shadow: -2px 0 0 var(--accent), 2px 0 0 var(--danger);
+    transform: skew(2deg);
+  }
+
+  50% {
+    text-shadow: 0 2px 0 var(--accent), 0 -2px 0 var(--danger);
+    transform: skew(-2deg);
+  }
+
+  75% {
+    text-shadow: 0 -1px 0 var(--accent), 0 1px 0 var(--danger);
+    transform: skew(0deg);
+  }
+
+  100% {
+    text-shadow: 2px 0 0 var(--accent), -2px 0 0 var(--danger);
+    transform: skew(0deg);
+  }
+}
+
+.glyphwave {
+  display: inline-block;
+  animation: glyphwave 0.1s infinite;
+  color: var(--accent);
+  font-weight: bold;
+}

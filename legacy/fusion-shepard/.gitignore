@@ -1,0 +1,11 @@
+build/
+dist/
+__pycache__/
+*.pyc
+*.spec
+*.exe
+!sophia_unlesangled.exe
+!sophia.exe
+.env
+logs/*.log
+backups/
