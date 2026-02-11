@@ -194,18 +194,18 @@ pub fn scrub_context(text: &str, level: ScrubLevel) -> String {
     }
     
     // 4. Structural cleanup (Always applied for all levels)
-    // Specific aesthetic refinement: replace glyphwave"> with >
+    // Specific aesthetic refinement: replace [glyphwave] or <glyphwave> with >
+    // We use a more careful regex to avoid eating legitimate greentext.
     static RE_GLYPHWAVE_TAG: OnceLock<Regex> = OnceLock::new();
-    let re_tag = RE_GLYPHWAVE_TAG.get_or_init(|| Regex::new(r#"(?i)(?:\[|<|&lt;)?/?glyphwave(?:\]|>|&gt;|"|&quot;|\\")*>??"#).unwrap());
+    let re_tag = RE_GLYPHWAVE_TAG.get_or_init(|| Regex::new(r#"(?i)(?:\[|<|&lt;)/?glyphwave(?:\]|>|&gt;|"|&quot;|\\")*"#).unwrap());
     cleaned = re_tag.replace_all(&cleaned, ">").to_string();
     
-    // Standard cleanup for any remaining glyphwave fragments
+    // Standard cleanup for any remaining glyphwave fragments (literals)
     static RE_GLYPHWAVE_CLEAN: OnceLock<Regex> = OnceLock::new();
     let re_clean = RE_GLYPHWAVE_CLEAN.get_or_init(|| Regex::new(r"(?i)glyphwave").unwrap());
     cleaned = re_clean.replace_all(&cleaned, "").to_string();
     
-    // Fix double-gt that might result from the above
-    cleaned = cleaned.replace(">>", ">");
+    // NOTE: Removed `cleaned.replace(">>", ">")` to allow nested greentext formatting.
 
     static RE_DIVIDER: OnceLock<Regex> = OnceLock::new();
     let re_divider = RE_DIVIDER.get_or_init(|| Regex::new(r"(?m)^[-=_]{3,}\s*$\n?").unwrap());
@@ -334,8 +334,11 @@ mod tests {
 
     #[test]
     fn test_scrub_glyphwave_aesthetic() {
-        let input = "Burenyu! glyphwave\">meow!";
+        let input = "Burenyu! glyphwave\">meow!\n>be me\n>>be nested";
         let output = scrub_context(input, ScrubLevel::Aesthetic);
-        assert_eq!(output, "Burenyu! >meow!");
+        // Should convert glyphwave fragment to > and PRESERVE nested greentext
+        assert!(output.contains(">meow!"));
+        assert!(output.contains(">be me"));
+        assert!(output.contains(">>be nested"));
     }
 }

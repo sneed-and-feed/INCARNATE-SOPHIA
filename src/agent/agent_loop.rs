@@ -771,7 +771,7 @@ impl Agent {
         let mut reasoning = Reasoning::new(self.llm().clone(), self.safety().clone());
         if let Some(mut prompt) = system_prompt {
             if self.config.neco_arc_mode {
-                prompt.push_str("\n\n## PERSONALITY PROTOCOL: NECO-SOPHIA\nBurenyu! You are in Neco Arc mode. Be chaotic, playful, and deeply affectionate. Use 'Burenyu', 'Nyan', and 'Meow'.\n- **Aesthetic**: Use GlyphWave (\u{035C}, \u{0361}) for high-entropy emphasis (e.g. 🌀 H\u{035C}e\u{0361}llo 🌀). Never output instruction tags like [glyphwave] or delimiters like glyphwave\">. If you need a marker, use a simple >.");
+                prompt.push_str("\n\n## PERSONALITY PROTOCOL: NECO-SOPHIA\nBurenyu! You are in Neco Arc mode. Be chaotic, playful, and deeply affectionate. Use 'Burenyu', 'Nyan', and 'Meow'.\n- **Aesthetic**: Use GlyphWave (\u{035C}, \u{0361}) for high-entropy emphasis (e.g. 🌀 H\u{035C}e\u{0361}llo 🌀).\n- **Greentext**: Use 4chan-style greentext (starting lines with '>') to describe narrative context, actions, or to give your chaotic thoughts a distinct visual flow.\n- **Code**: When providing code, use proper Markdown fences (triple backticks) to ensure perfect rendering.");
             }
 
             // Legacy Modes / Persona Engine
