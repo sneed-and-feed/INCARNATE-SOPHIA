@@ -642,6 +642,7 @@ impl EmbeddingProvider for GoogleEmbeddings {
         let status = response.status();
 
         if !status.is_success() {
+            let headers = response.headers().clone();
             let error_text = response.text().await.unwrap_or_default();
             tracing::error!("Google Embeddings Failed ({}): {}", status, error_text);
             
@@ -649,7 +650,14 @@ impl EmbeddingProvider for GoogleEmbeddings {
                 return Err(EmbeddingError::AuthFailed);
             }
             if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                 return Err(EmbeddingError::RateLimited { retry_after: None });
+                 let retry_after = headers
+                    .get("retry-after")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .map(std::time::Duration::from_secs)
+                    .or(if error_text.contains("RESOURCE_EXHAUSTED") { Some(std::time::Duration::from_secs(60)) } else { None });
+
+                 return Err(EmbeddingError::RateLimited { retry_after });
             }
             
             return Err(EmbeddingError::HttpError(format!("Status {}: {}", status, error_text)));

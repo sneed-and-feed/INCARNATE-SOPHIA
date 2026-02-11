@@ -125,7 +125,7 @@ pub enum LlmError {
     #[error("Provider {provider} request failed: {reason}")]
     RequestFailed { provider: String, reason: String },
 
-    #[error("Provider {provider} rate limited, retry after {retry_after:?}")]
+    #[error("Provider {provider} rate limited, retry after {}", .retry_after.map(|d| format!("{}s", d.as_secs())).unwrap_or_else(|| "unknown duration".to_string()))]
     RateLimited {
         provider: String,
         retry_after: Option<Duration>,

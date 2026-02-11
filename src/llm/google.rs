@@ -97,11 +97,27 @@ impl GoogleGeminiProvider {
                 });
             }
             if status.as_u16() == 429 {
-                let retry_after = headers
+                let mut retry_after = headers
                     .get("retry-after")
                     .and_then(|h| h.to_str().ok())
                     .and_then(|s| s.parse::<u64>().ok())
                     .map(Duration::from_secs);
+
+                // If header is missing, try parsing the body for quota reset info
+                if retry_after.is_none() {
+                    if let Ok(error_json) = serde_json::from_str::<serde_json::Value>(&response_text) {
+                        // Google often returns "RETRY_AFTER_LATER" or similar in metadata
+                        // or a message like "Resource has been exhausted (e.g. check quota)."
+                        // For now, if we see RESOURCE_EXHAUSTED and no duration, we can 
+                        tracing::warn!("Google rate limit body: {}", response_text);
+                        
+                        // Check for common Google error patterns
+                        if response_text.contains("RESOURCE_EXHAUSTED") {
+                             // Default to 60s if we can't find a specific one
+                             retry_after = Some(Duration::from_secs(60));
+                        }
+                    }
+                }
 
                 return Err(LlmError::RateLimited {
                     provider: "google".to_string(),
