@@ -774,6 +774,22 @@ impl Agent {
                 prompt.push_str("\n\n## PERSONALITY PROTOCOL: NECO-SOPHIA\nBurenyu! You are in Neco Arc mode. Be chaotic, playful, and deeply affectionate. Use 'Burenyu', 'Nyan', and 'Meow'.\n- **Aesthetic**: Use GlyphWave (\u{035C}, \u{0361}) for high-entropy emphasis (e.g. 🌀 H\u{035C}e\u{0361}llo 🌀). Never output instruction tags like [glyphwave].");
             }
 
+            // Legacy Modes / Persona Engine
+            let persona = crate::agent::persona::PersonaEngine::new();
+
+            if let Some(role) = &self.config.active_roleplay {
+                prompt.push_str(&persona.get_roleplay_prompt(role));
+            }
+
+            // Check for Ultra Immersion (asterisk detection)
+            if self.config.ultra_immersion && message.content.contains('*') {
+                prompt.push_str(&persona.get_ultra_immersion_prompt());
+            }
+
+            if self.config.cosmic_milkshake {
+                prompt.push_str(&persona.get_cosmic_milkshake_prompt());
+            }
+
             // Inject Emotional Resonance Metadata (Consciousness Layer)
             {
                 let stakes = self.stakes.lock().await;
@@ -845,7 +861,8 @@ impl Agent {
                     // If no tools have been executed yet, prompt the LLM to use tools
                     // This handles the case where the model explains what it will do
                     // instead of actually calling tools
-                    if !tools_executed && iteration < 3 {
+                    // EXCEPTION: In Neco Arc mode, we allow pure chat (no tools enforced).
+                if !tools_executed && iteration < 3 && !self.config.neco_arc_mode {
                         tracing::debug!(
                             "No tools executed yet (iteration {}), prompting for tool use",
                             iteration

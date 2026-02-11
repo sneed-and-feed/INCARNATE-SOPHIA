@@ -573,14 +573,20 @@ impl EmbeddingProvider for GoogleEmbeddings {
     }
 
     async fn embed(&self, text: &str) -> Result<Vec<f32>, EmbeddingError> {
-         if text.len() > self.max_input_length() {
-             let truncated = &text[..self.max_input_length()];
-             let embeddings = self.embed_batch(&[truncated.to_string()]).await?;
-             embeddings
-                 .into_iter()
-                 .next()
-                 .ok_or_else(|| EmbeddingError::InvalidResponse("No embedding returned".to_string()))
-        } else {
+          if text.len() > self.max_input_length() {
+              // Safe UTF-8 truncation
+              let mut end = self.max_input_length();
+              while end > 0 && !text.is_char_boundary(end) {
+                  end -= 1;
+              }
+              let truncated = &text[..end];
+              
+              let embeddings = self.embed_batch(&[truncated.to_string()]).await?;
+              embeddings
+                  .into_iter()
+                  .next()
+                  .ok_or_else(|| EmbeddingError::InvalidResponse("No embedding returned".to_string()))
+          } else {
              let embeddings = self.embed_batch(&[text.to_string()]).await?;
              embeddings
                  .into_iter()
@@ -594,105 +600,123 @@ impl EmbeddingProvider for GoogleEmbeddings {
             return Ok(Vec::new());
         }
 
-        // Native Google API: models/{model}:batchEmbedContents
-        let batch_requests: Vec<serde_json::Value> = texts
-            .iter()
-            .map(|text| {
-                serde_json::json!({
-                    "model": format!("models/{}", self.model),
-                    "content": {
-                        "parts": [{ "text": text }]
-                    }
-                })
-            })
-            .collect();
-
-        let request = serde_json::json!({
-            "requests": batch_requests
-        });
-
-        let base_url = if self.base_url.contains("/openai") {
-            self.base_url.replace("/openai", "")
-        } else {
-            self.base_url.clone()
-        };
+        let is_openai = self.base_url.contains("/openai");
+        let is_legacy = self.model.contains("embedding-001");
         
-        // Ensure clean URL construction
+        // 1. Prepare Request
+        if is_openai {
+            let url = format!("{}/embeddings", self.base_url.trim_end_matches('/'));
+            let body = serde_json::json!({
+                "model": self.model,
+                "input": texts
+            });
+
+            tracing::info!("Google Embeddings Request (OpenAI): URL={}, Model={}", url, self.model);
+
+            let response = self.client.post(&url)
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .json(&body)
+                .send()
+                .await?;
+
+            let status = response.status();
+            if !status.is_success() {
+                let err = response.text().await.unwrap_or_default();
+                return Err(EmbeddingError::HttpError(format!("Status {}: {}", status, err)));
+            }
+
+            let result: serde_json::Value = response.json().await?;
+            let data = result.get("data").and_then(|v| v.as_array()).ok_or_else(|| EmbeddingError::InvalidResponse("Missing data".into()))?;
+            
+            let mut vectors = Vec::new();
+            for item in data {
+                let values = item.get("embedding").and_then(|v| v.as_array()).ok_or_else(|| EmbeddingError::InvalidResponse("Missing embedding".into()))?;
+                let mut vec: Vec<f32> = values.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect();
+                if vec.len() < self.dimension { vec.resize(self.dimension, 0.0); }
+                else if vec.len() > self.dimension { vec.truncate(self.dimension); }
+                vectors.push(vec);
+            }
+            return Ok(vectors);
+        }
+
+        // Native Logic
+        if is_legacy {
+            // gemini-embedding-001 uses :embedContent (singular)
+            let mut vectors = Vec::new();
+            for text in texts {
+                let url = format!(
+                    "{}/models/{}:embedContent", 
+                    self.base_url.trim_end_matches('/').replace("/openai", ""), 
+                    if self.model.starts_with("models/") { self.model.clone() } else { format!("models/{}", self.model) }
+                );
+                
+                let body = serde_json::json!({
+                    "model": if self.model.starts_with("models/") { self.model.clone() } else { format!("models/{}", self.model) },
+                    "content": { "parts": [{ "text": text }] }
+                });
+
+                let response = self.client.post(&url)
+                    .header("x-goog-api-key", &self.api_key)
+                    .json(&body)
+                    .send()
+                    .await?;
+
+                let status = response.status();
+                if !status.is_success() {
+                    let err = response.text().await.unwrap_or_default();
+                    return Err(EmbeddingError::HttpError(format!("Status {}: {}", status, err)));
+                }
+
+                let result: serde_json::Value = response.json().await?;
+                let values = result.get("embedding").and_then(|e| e.get("values")).and_then(|v| v.as_array())
+                    .ok_or_else(|| EmbeddingError::InvalidResponse("Missing embedding values".into()))?;
+                
+                let mut vec: Vec<f32> = values.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect();
+                if vec.len() < self.dimension { vec.resize(self.dimension, 0.0); }
+                else if vec.len() > self.dimension { vec.truncate(self.dimension); }
+                vectors.push(vec);
+            }
+            return Ok(vectors);
+        }
+
+        // Default Native Batch (text-embedding-004 etc)
+        let batch_requests: Vec<serde_json::Value> = texts.iter().map(|text| {
+            serde_json::json!({
+                "model": if self.model.starts_with("models/") { self.model.clone() } else { format!("models/{}", self.model) },
+                "content": { "parts": [{ "text": text }] }
+            })
+        }).collect();
+
         let url = format!(
-            "{}/models/{}:batchEmbedContents", 
-            base_url.trim_end_matches('/'), 
-            self.model
+            "{}/{}:batchEmbedContents", 
+            self.base_url.trim_end_matches('/').replace("/openai", ""), 
+            if self.model.starts_with("models/") { self.model.clone() } else { format!("models/{}", self.model) }
         );
 
-        tracing::info!(
-            "Google Native Embeddings Request: URL={}, Model={} (Padded to {})", 
-            url, 
-            self.model,
-            self.dimension
-        );
-
-        let response = self
-            .client
-            .post(&url)
+        let response = self.client.post(&url)
             .header("x-goog-api-key", &self.api_key)
-            .json(&request)
+            .json(&serde_json::json!({ "requests": batch_requests }))
             .send()
             .await?;
 
         let status = response.status();
-
         if !status.is_success() {
-            let headers = response.headers().clone();
-            let error_text = response.text().await.unwrap_or_default();
-            tracing::error!("Google Embeddings Failed ({}): {}", status, error_text);
-            
-            if status == reqwest::StatusCode::UNAUTHORIZED {
-                return Err(EmbeddingError::AuthFailed);
-            }
-            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                 let retry_after = headers
-                    .get("retry-after")
-                    .and_then(|v| v.to_str().ok())
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .map(std::time::Duration::from_secs)
-                    .or(if error_text.contains("RESOURCE_EXHAUSTED") { Some(std::time::Duration::from_secs(60)) } else { None });
-
-                 return Err(EmbeddingError::RateLimited { retry_after });
-            }
-            
-            return Err(EmbeddingError::HttpError(format!("Status {}: {}", status, error_text)));
+            let err = response.text().await.unwrap_or_default();
+            return Err(EmbeddingError::HttpError(format!("Status {}: {}", status, err)));
         }
 
-        let result: serde_json::Value = response.json().await.map_err(|e| {
-            EmbeddingError::InvalidResponse(format!("Failed to parse response: {}", e))
-        })?;
+        let result: serde_json::Value = response.json().await?;
+        let items = result.get("embeddings").and_then(|v| v.as_array()).ok_or_else(|| EmbeddingError::InvalidResponse("Missing embeddings".into()))?;
         
-        let embeddings_json = result.get("embeddings").and_then(|v| v.as_array());
-        
-        if let Some(emb_list) = embeddings_json {
-            let mut vectors = Vec::new();
-            for item in emb_list {
-                 if let Some(values) = item.get("values").and_then(|v| v.as_array()) {
-                     let mut vec: Vec<f32> = values.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect();
-                     
-                     // ZERO PADDING logic to match DB dimension (1536)
-                     // Google returns 768. We add zeros.
-                     // Cosine similarity is preserved.
-                     if vec.len() < self.dimension {
-                         vec.resize(self.dimension, 0.0);
-                     } else if vec.len() > self.dimension {
-                         vec.truncate(self.dimension);
-                     }
-                     
-                     vectors.push(vec);
-                 } else {
-                     return Err(EmbeddingError::InvalidResponse("Missing 'values' in embedding response".to_string()));
-                 }
-            }
-            Ok(vectors)
-        } else {
-             Err(EmbeddingError::InvalidResponse("Missing 'embeddings' field in response".to_string()))
+        let mut vectors = Vec::new();
+        for item in items {
+            let values = item.get("values").and_then(|v| v.as_array()).ok_or_else(|| EmbeddingError::InvalidResponse("Missing values".into()))?;
+            let mut vec: Vec<f32> = values.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect();
+            if vec.len() < self.dimension { vec.resize(self.dimension, 0.0); }
+            else if vec.len() > self.dimension { vec.truncate(self.dimension); }
+            vectors.push(vec);
         }
+        Ok(vectors)
     }
 }
 
@@ -747,5 +771,30 @@ mod tests {
         let provider = OpenAiEmbeddings::large("test-key");
         assert_eq!(provider.dimension(), 3072);
         assert_eq!(provider.model_name(), "text-embedding-3-large");
+    }
+
+    #[test]
+    fn test_safe_truncation() {
+        // Multi-byte character: '│' (E2 94 82 in UTF-8, 3 bytes)
+        let text = "detection of injection attempts │ Content sanitization";
+        
+        // "detection of injection attempts " is 31 bytes
+        // '│' is 3 bytes (starts at 31, ends at 34)
+        
+        // Truncate at 32 (inside '│')
+        let mut end = 32;
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        let truncated = &text[..end];
+        assert_eq!(truncated, "detection of injection attempts ");
+        
+        // Truncate at 34 (at boundary)
+        let mut end2 = 34;
+        while end2 > 0 && !text.is_char_boundary(end2) {
+            end2 -= 1;
+        }
+        let truncated2 = &text[..end2];
+        assert_eq!(truncated2, "detection of injection attempts │");
     }
 }

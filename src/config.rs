@@ -551,6 +551,12 @@ pub struct AgentConfig {
     pub session_idle_timeout: Duration,
     /// Whether Neco Arc mode (nyan) is activated.
     pub neco_arc_mode: bool,
+    /// Active roleplay persona description.
+    pub active_roleplay: Option<String>,
+    /// Whether Ultra Immersion mode (asterisk detection) is enabled.
+    pub ultra_immersion: bool,
+    /// Whether Cosmic Milkshake mode (Sovereign/UwU blend) is enabled.
+    pub cosmic_milkshake: bool,
 }
 
 impl AgentConfig {
@@ -629,6 +635,23 @@ impl AgentConfig {
                 .transpose()
                 .map_err(|e| ConfigError::InvalidValue {
                     key: "NECO_ARC_MODE".to_string(),
+                    message: format!("must be 'true' or 'false': {e}"),
+                })?
+                .unwrap_or(false),
+            active_roleplay: optional_env("ACTIVE_ROLEPLAY")?,
+            ultra_immersion: optional_env("ULTRA_IMMERSION")?
+                .map(|s| s.parse())
+                .transpose()
+                .map_err(|e| ConfigError::InvalidValue {
+                    key: "ULTRA_IMMERSION".to_string(),
+                    message: format!("must be 'true' or 'false': {e}"),
+                })?
+                .unwrap_or(false),
+            cosmic_milkshake: optional_env("COSMIC_MILKSHAKE")?
+                .map(|s| s.parse())
+                .transpose()
+                .map_err(|e| ConfigError::InvalidValue {
+                    key: "COSMIC_MILKSHAKE".to_string(),
                     message: format!("must be 'true' or 'false': {e}"),
                 })?
                 .unwrap_or(false),

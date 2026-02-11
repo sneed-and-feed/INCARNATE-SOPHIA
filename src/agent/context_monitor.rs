@@ -162,9 +162,13 @@ pub fn scrub_context(text: &str) -> String {
     }
     
     // 4. Remove divider debris and leaking internal instructions
-    if let Ok(re) = Regex::new(r"(?m)^.*(?:[Gg]lyph[Ww]ave|GLYPHWAVE|[Rr]esonance|[Ss]overeign [Mm]etadata).*$") {
+    // 4. Remove divider debris and leaking internal instructions
+    // Handles [glyphwave], [glyphwave"], glyphwave">, <glyphwave>, etc.
+    if let Ok(re) = Regex::new(r#"(?i)(?:\[|<|&lt;)?/?glyphwave(?:\]|>|&gt;|"|&quot;)*"#) {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
+    // Also scrub specific broken artifacts reported by user
+    cleaned = cleaned.replace("glyphwave\">", "");
 
     if let Ok(re) = Regex::new(r"(?m)^[-=_]{3,}\s*$\n?") {
         cleaned = re.replace_all(&cleaned, "").to_string();

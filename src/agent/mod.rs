@@ -13,6 +13,7 @@ mod agent_loop;
 pub mod compaction;
 pub mod context_monitor;
 mod heartbeat;
+pub mod persona;
 mod router;
 mod scheduler;
 mod self_repair;

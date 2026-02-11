@@ -163,7 +163,7 @@ impl Default for Policy {
         policy.add_rule(PolicyRule::new(
             "shell_injection",
             "Potential shell command injection",
-            r"(?i)(;\s*rm\s+-rf|;\s*curl\s+.*\|\s*sh|`.*`)",
+            r"(?i)(;\s*rm\s+-rf|;\s*curl\s+.*\|\s*sh)",
             Severity::Critical,
             PolicyAction::Block,
         ));

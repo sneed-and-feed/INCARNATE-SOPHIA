@@ -276,7 +276,7 @@ async fn main() -> anyhow::Result<()> {
                         ironclaw::workspace::GoogleEmbeddings::new(
                             api_key,
                             &config.llm.google.base_url,
-                        ).with_model(&config.embeddings.model, 768) // Default to 768
+                        ).with_model(&config.embeddings.model, 1536) // Zero-padded to match DB schema
                     ))
                 } else {
                     tracing::warn!("Google embeddings enabled but GOOGLE_API_KEY not set.");
