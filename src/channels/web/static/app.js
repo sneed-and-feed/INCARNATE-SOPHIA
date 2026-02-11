@@ -220,7 +220,7 @@ function processGlyphwave(text) {
     /(\bmeow+\b)/gi,
     /(\bburunyuu+\b)/gi,
     /(\bnyan+\b)/gi,
-    /(\bglyphwave\b)/gi
+    /(\bnyan+\b)/gi
   ];
 
   let processed = text;

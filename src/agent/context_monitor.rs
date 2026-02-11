@@ -164,12 +164,18 @@ pub fn scrub_context(text: &str) -> String {
     // 4. Remove divider debris and leaking internal instructions
     
     // Specific aesthetic refinement: replace glyphwave"> with > as requested
-    cleaned = cleaned.replace("glyphwave\">", ">");
-
-    // Handles [glyphwave], [glyphwave"], <glyphwave>, etc.
-    if let Ok(re) = Regex::new(r#"(?i)(?:\[|<|&lt;)?/?glyphwave(?:\]|>|&gt;|"|&quot;)*"#) {
+    // Use a regex for this to be more flexible (e.g. handle escaped quotes or different brackets)
+    if let Ok(re) = Regex::new(r#"(?i)(?:\[|<|&lt;)?/?glyphwave(?:\]|>|&gt;|"|&quot;|\\")*>??"#) {
+        cleaned = re.replace_all(&cleaned, ">").to_string();
+    }
+    
+    // Standard cleanup for any remaining glyphwave fragments
+    if let Ok(re) = Regex::new(r"(?i)glyphwave") {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
+
+    // Fix double-gt that might result from the above
+    cleaned = cleaned.replace(">>", ">");
 
     if let Ok(re) = Regex::new(r"(?m)^[-=_]{3,}\s*$\n?") {
         cleaned = re.replace_all(&cleaned, "").to_string();
