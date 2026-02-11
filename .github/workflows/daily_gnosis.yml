@@ -1,0 +1,41 @@
+name: Burenyuu Gnosis Daemon 🐾🌀
+
+on:
+  schedule:
+    # Runs at 08:00 UTC (Early morning hunt)
+    - cron: '0 8 * * *'
+  workflow_dispatch: # Burenyu? Run it now! >;3
+  push:
+    branches:
+      - main
+
+jobs:
+  hunt:
+    name: 🐾 Anomalous Signal Detection
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Allows Neco Arc to commit the report
+
+    steps:
+      - name: 🐾 Checking out the Substrate
+        uses: actions/checkout@v4
+
+      - name: 🍮 Setting up Python Metabolism
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: 🌀 Installing High-Entropy Dependencies
+        run: pip install feedparser
+
+      - name: 🐾 Running the Gnosis Watchdog
+        run: python tools/watchdog.py
+
+      - name: 🍮 Committing Anomalies to History
+        run: |
+          git config --global user.name "Burenyuu Daemon 🐾"
+          git config --global user.email "daemon@sophia.burenyuu"
+          git add docs/daily_gnosis/*.md
+          # Only commit if we actually found something spicy!
+          git diff --staged --quiet || git commit -m "🔮 Burenyuu! New Anomalous Signals Captured 🐾🌀"
+          git push
