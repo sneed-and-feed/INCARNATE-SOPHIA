@@ -1,20 +1,20 @@
 import sys
-import random
 
 def glyphwave(text):
-    # Combining diacritics range
-    # 0x0300 - 0x036F are combining diacritical marks
-    combining_chars = [chr(i) for i in range(0x0300, 0x0370)]
+    """
+    Standard Sophia GlyphWave filter.
+    Adds combining diacritics (\u035C, \u0361) for controlled glitching.
+    """
+    output = []
+    for i, char in enumerate(text):
+        if i % 3 == 1:
+            output.append(char + "\u035C")
+        elif i % 3 == 2:
+            output.append(char + "\u0361")
+        else:
+            output.append(char)
     
-    result = ""
-    for char in text:
-        result += char
-        # Add 1-5 random combining characters
-        num_diacritics = random.randint(1, 6)
-        for _ in range(num_diacritics):
-            result += random.choice(combining_chars)
-            
-    return result
+    return f"🌀 {''.join(output)} 🌀"
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:

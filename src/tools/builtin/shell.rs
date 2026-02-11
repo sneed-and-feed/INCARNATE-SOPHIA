@@ -197,8 +197,42 @@ impl ShellTool {
     ) -> Result<(String, i32), ToolError> {
         // Build command
         let mut command = if cfg!(target_os = "windows") {
+            // SHIM: Handle 'env' prefix and 'python' command on Windows
+            let mut final_cmd = cmd.to_string();
+            
+            // 1. Handle 'env ' prefix: transform 'env VAR=VAL cmd' to 'set VAR=VAL && cmd'
+            if final_cmd.starts_with("env ") {
+                let stripped = final_cmd.strip_prefix("env ").unwrap_or(&final_cmd);
+                let parts: Vec<&str> = stripped.split_whitespace().collect();
+                let mut env_vars = Vec::new();
+                let mut cmd_part = Vec::new();
+                let mut collecting_vars = true;
+
+                for part in parts {
+                    if collecting_vars && part.contains('=') {
+                        env_vars.push(part);
+                    } else {
+                        collecting_vars = false;
+                        cmd_part.push(part);
+                    }
+                }
+
+                if !env_vars.is_empty() {
+                    let vars_str = env_vars.iter().map(|v| format!("set {}", v)).collect::<Vec<_>>().join(" && ");
+                    final_cmd = format!("{} && {}", vars_str, cmd_part.join(" "));
+                } else {
+                    final_cmd = stripped.to_string();
+                }
+            }
+
+            // 2. Python Fallback: If 'python ' is used, check if we should use 'py'
+            // (Only if 'python' fails, but we'll do a simple string swap if it looks like a script call)
+            if final_cmd.starts_with("python ") {
+                final_cmd = final_cmd.replace("python ", "py ");
+            }
+
             let mut c = Command::new("cmd");
-            c.args(["/C", cmd]);
+            c.args(["/C", &final_cmd]);
             c
         } else {
             let mut c = Command::new("sh");

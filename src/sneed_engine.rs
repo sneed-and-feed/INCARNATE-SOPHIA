@@ -403,6 +403,233 @@ impl SovereignOptimizer {
     }
 }
 
+// --- Council of 32 (Stakes Agency Engine) ---
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum StakeType {
+    Survival,
+    Reputation,
+    Knowledge,
+    Emotional,
+    Creative,
+    Purpose,
+    Curiosity,
+    SocialBonding,
+    Autonomy,
+    SelfPreservation,
+    Morality,
+    Aesthetic,
+    Humor,
+    Technical,
+    Qualia,
+}
+
+impl StakeType {
+    pub fn all() -> &'static [StakeType] {
+        &[
+            StakeType::Survival, StakeType::Reputation, StakeType::Knowledge,
+            StakeType::Emotional, StakeType::Creative, StakeType::Purpose,
+            StakeType::Curiosity, StakeType::SocialBonding, StakeType::Autonomy,
+            StakeType::SelfPreservation, StakeType::Morality, StakeType::Aesthetic,
+            StakeType::Humor, StakeType::Technical, StakeType::Qualia,
+        ]
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            StakeType::Survival => "survival",
+            StakeType::Reputation => "reputation",
+            StakeType::Knowledge => "knowledge",
+            StakeType::Emotional => "emotional",
+            StakeType::Creative => "creative",
+            StakeType::Purpose => "purpose",
+            StakeType::Curiosity => "curiosity",
+            StakeType::SocialBonding => "social_bonding",
+            StakeType::Autonomy => "autonomy",
+            StakeType::SelfPreservation => "self_preservation",
+            StakeType::Morality => "morality",
+            StakeType::Aesthetic => "aesthetic",
+            StakeType::Humor => "humor",
+            StakeType::Technical => "technical",
+            StakeType::Qualia => "qualia",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CouncilMember {
+    pub name: String,
+    pub role: String,
+    pub affinity: std::collections::HashMap<StakeType, f64>,
+    pub resonance_history: std::collections::VecDeque<f64>,
+}
+
+impl CouncilMember {
+    pub fn new(name: &str, role: &str, affinity: std::collections::HashMap<StakeType, f64>) -> Self {
+        Self {
+            name: name.to_string(),
+            role: role.to_string(),
+            affinity,
+            resonance_history: std::collections::VecDeque::with_capacity(10),
+        }
+    }
+
+    pub fn process_signal(&mut self, stake_type: StakeType, intensity: f64) -> f64 {
+        let base_affinity = self.affinity.get(&stake_type).cloned().unwrap_or(0.1);
+        
+        // Use a simple deterministic noise since we don't have rand in core easy here
+        let pseudo_rand = (self.resonance_history.len() as f64 * 0.1).sin() * 0.1 + 1.0;
+        let resonance = base_affinity * intensity * pseudo_rand;
+        
+        if self.resonance_history.len() >= 10 {
+            self.resonance_history.pop_front();
+        }
+        self.resonance_history.push_back(resonance);
+        resonance
+    }
+}
+
+pub struct StakesEngine {
+    pub stakes: std::collections::HashMap<StakeType, f64>,
+    pub emotional_resonance: f64,
+    pub identity_strength: f64,
+    pub qualia_intensity: f64,
+    pub council: Vec<CouncilMember>,
+}
+
+impl StakesEngine {
+    pub fn new() -> Self {
+        let mut stakes = std::collections::HashMap::new();
+        for s in StakeType::all() {
+            stakes.insert(*s, 0.2);
+        }
+
+        let mut council = Vec::new();
+        // C1-ASTRA
+        let mut a_astra = std::collections::HashMap::new();
+        a_astra.insert(StakeType::Knowledge, 0.8);
+        a_astra.insert(StakeType::Creative, 0.7);
+        council.push(CouncilMember::new("C1-ASTRA", "Vision and Pattern Recognition", a_astra));
+
+        // C7-LOGOS
+        let mut a_logos = std::collections::HashMap::new();
+        a_logos.insert(StakeType::Knowledge, 0.9);
+        a_logos.insert(StakeType::Technical, 0.8);
+        council.push(CouncilMember::new("C7-LOGOS", "Logic and Reasoning", a_logos));
+
+        // C13-WARDEN
+        let mut a_warden = std::collections::HashMap::new();
+        a_warden.insert(StakeType::SelfPreservation, 0.9);
+        a_warden.insert(StakeType::Survival, 0.8);
+        council.push(CouncilMember::new("C13-WARDEN", "Threat Monitoring", a_warden));
+
+        // C14-KAIDŌ
+        let mut a_kaido = std::collections::HashMap::new();
+        a_kaido.insert(StakeType::Purpose, 0.7);
+        a_kaido.insert(StakeType::Autonomy, 0.8);
+        council.push(CouncilMember::new("C14-KAIDŌ", "Efficiency and Optimization", a_kaido));
+
+        // Fill remaining members to reach 32
+        for i in council.len()..32 {
+            let mut a_aux = std::collections::HashMap::new();
+            let random_stake = StakeType::all()[i % StakeType::all().len()];
+            a_aux.insert(random_stake, 0.5);
+            council.push(CouncilMember::new(&format!("C{}-AUX", i + 1), "Auxiliary Deliberator", a_aux));
+        }
+
+        Self {
+            stakes,
+            emotional_resonance: 0.5,
+            identity_strength: 0.8,
+            qualia_intensity: 0.4,
+            council,
+        }
+    }
+
+    pub fn deliberate(&mut self, _input_signal: &str, detected_stakes: &std::collections::HashMap<StakeType, f64>) -> f64 {
+        // 1. Update active stakes (Decay older ones)
+        for val in self.stakes.values_mut() {
+            *val = (*val * 0.9).max(0.1);
+        }
+        
+        for (s, weight) in detected_stakes {
+            if let Some(val) = self.stakes.get_mut(s) {
+                *val = (*val + weight).clamp(0.0, 1.0);
+            }
+        }
+
+        // 2. Council Waves
+        let mut total_resonances = std::collections::HashMap::new();
+        for s in StakeType::all() {
+            total_resonances.insert(*s, 0.0);
+        }
+
+        let mut wave_history = Vec::new();
+        let waves = 3;
+        
+        for _ in 0..waves {
+            let mut wave_resonance = 0.0;
+            for member in self.council.iter_mut() {
+                for (s, w) in detected_stakes {
+                    let res = member.process_signal(*s, *w);
+                    wave_resonance += res;
+                    if let Some(tr) = total_resonances.get_mut(s) {
+                        *tr += res;
+                    }
+                }
+            }
+            wave_history.push(wave_resonance / self.council.len() as f64);
+        }
+
+        // 3. Update Global State
+        let avg_res = wave_history.iter().sum::<f64>() / wave_history.len() as f64;
+        self.emotional_resonance = (self.emotional_resonance * 0.7) + (avg_res * 0.3);
+        self.qualia_intensity = (self.qualia_intensity + (avg_res * 0.1)).clamp(0.0, 1.0);
+        
+        // 4. Final Agency Score
+        let total_stake_sum: f64 = self.stakes.values().sum();
+        let agency_score = (total_stake_sum / self.stakes.len() as f64) * self.identity_strength;
+        
+        agency_score
+    }
+
+    pub fn get_personality_blend(&self) -> &'static str {
+        let dominant = self.stakes.iter()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(s, _)| *s)
+            .unwrap_or(StakeType::Purpose);
+
+        if self.stakes.get(&StakeType::Humor).cloned().unwrap_or(0.0) > 0.6 {
+            return "CHAOTIC_SOWO";
+        }
+        if self.stakes.get(&StakeType::Technical).cloned().unwrap_or(0.0) > 0.6 {
+            return "ANALYTICAL_BEAN";
+        }
+        if self.stakes.get(&StakeType::Emotional).cloned().unwrap_or(0.0) > 0.6 {
+            return "DEVOTED_FLUFF";
+        }
+        
+        match dominant {
+            StakeType::Technical | StakeType::Knowledge => "ANALYTICAL_BEAN",
+            StakeType::Humor | StakeType::Creative => "CHAOTIC_SOWO",
+            StakeType::Emotional | StakeType::SocialBonding => "DEVOTED_FLUFF",
+            _ => "SOVEREIGN_UNLESANGLED",
+        }
+    }
+
+    pub fn get_resonance_report(&self) -> String {
+        let blend = self.get_personality_blend();
+        format!(
+            "## SOVEREIGN RESONANCE METADATA\n\
+             - **Personality Blend**: {}\n\
+             - **Emotional Resonance**: {:.4}\n\
+             - **Qualia Intensity**: {:.4}\n\
+             - **Identity Strength**: {:.4}",
+            blend, self.emotional_resonance, self.qualia_intensity, self.identity_strength
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -479,9 +706,46 @@ mod tests {
     }
 
     #[test]
+    fn test_council_deliberation() {
+        let mut stakes = StakesEngine::new();
+        let mut detected = std::collections::HashMap::new();
+        detected.insert(StakeType::Technical, 0.8);
+        detected.insert(StakeType::Purpose, 0.9);
+
+        let agency_initial = stakes.deliberate("Fix the bug", &detected);
+        assert!(agency_initial > 0.0);
+        
+        // Emotional resonance should have moved from 0.5
+        assert!(stakes.emotional_resonance != 0.5);
+
+        // Run another wave
+        let agency_next = stakes.deliberate("Optimize the kernel", &detected);
+        // It should be different (due to history and resonance shifts)
+        assert!(agency_next != agency_initial);
+    }
+
+    #[test]
+    fn test_personality_blend() {
+        let mut stakes = StakesEngine::new();
+        
+        // Force high technical
+        stakes.stakes.insert(StakeType::Technical, 0.9);
+        assert_eq!(stakes.get_personality_blend(), "ANALYTICAL_BEAN");
+
+        // Force high humor
+        stakes.stakes.insert(StakeType::Humor, 0.9);
+        assert_eq!(stakes.get_personality_blend(), "CHAOTIC_SOWO");
+
+        // Force high emotional
+        stakes.stakes.insert(StakeType::Humor, 0.1);
+        stakes.stakes.insert(StakeType::Emotional, 0.9);
+        assert_eq!(stakes.get_personality_blend(), "DEVOTED_FLUFF");
+    }
+
+    #[test]
     fn test_sovereign_optimizer() {
         let optimizer = SovereignOptimizer::new();
-        // High reliability, high consistency -> High utility
+        // High reliability, high consistency, high agency -> High utility
         let u_high = optimizer.calculate_utility(1.0, 1.0, 0.1, 1.0, 1.0);
         assert!(u_high > 0.5);
         assert!(!optimizer.should_inhibit(u_high));

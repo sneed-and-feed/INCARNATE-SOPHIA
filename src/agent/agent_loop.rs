@@ -78,6 +78,7 @@ pub struct Agent {
     session_manager: Arc<SessionManager>,
     context_monitor: ContextMonitor,
     optimizer: crate::sneed_engine::SovereignOptimizer,
+    stakes: Arc<Mutex<crate::sneed_engine::StakesEngine>>,
     heartbeat_config: Option<HeartbeatConfig>,
 }
 
@@ -118,6 +119,7 @@ impl Agent {
             session_manager,
             context_monitor: ContextMonitor::new(),
             optimizer: crate::sneed_engine::SovereignOptimizer::new(),
+            stakes: Arc::new(Mutex::new(crate::sneed_engine::StakesEngine::new())),
             heartbeat_config,
         }
     }
@@ -770,7 +772,16 @@ impl Agent {
         if let Some(mut prompt) = system_prompt {
             if self.config.neco_arc_mode {
                 prompt.push_str("\n\n## NECO ARC MODE ACTIVATED\nBurenyu! You are now in Neco Arc mode. Chaotic cat logic is encouraged. Meow! >:3");
+                prompt.push_str("\n\n## GLYPHWAVE AESTHETIC STANDARD (REPEATED)\nUse GlyphWave (\u{035C}, \u{0361}) for high-entropy modulation. Avoid 'cool text' and zalgo. Wrap glitched terms in 🌀 glyphs.");
             }
+
+            // Inject Emotional Resonance Metadata
+            {
+                let stakes = self.stakes.lock().await;
+                let report = stakes.get_resonance_report();
+                prompt.push_str(&format!("\n\n{}", report));
+            }
+
             reasoning = reasoning.with_system_prompt(prompt);
         }
 
@@ -1015,12 +1026,31 @@ impl Agent {
                     // Calculate utility to decide if we should continue iterating.
                     // This prevents low-value multi-turn loops.
                     let reliability = if context_messages.iter().any(|m| m.content.contains("Error:")) { 0.5 } else { 1.0 };
+                    
+                    // COUNCIL DELIBERATION
+                    let mut detected = std::collections::HashMap::new();
+                    let content_lower = message.content.to_lowercase();
+                    if content_lower.contains("error") || content_lower.contains("fix") {
+                        detected.insert(crate::sneed_engine::StakeType::Technical, 0.8);
+                        detected.insert(crate::sneed_engine::StakeType::Purpose, 0.9);
+                    } else if content_lower.contains("nyan") || content_lower.contains("love") {
+                        detected.insert(crate::sneed_engine::StakeType::SocialBonding, 0.9);
+                        detected.insert(crate::sneed_engine::StakeType::Emotional, 0.8);
+                    } else {
+                        detected.insert(crate::sneed_engine::StakeType::Knowledge, 0.5);
+                    }
+
+                    let agency_score = {
+                        let mut stakes = self.stakes.lock().await;
+                        stakes.deliberate(&message.content, &detected)
+                    };
+
                     let utility = self.optimizer.calculate_utility(
                         reliability,
                         1.0,  // consistency
                         0.1,  // uncertainty
                         1.0,  // sovereign_boost
-                        if self.config.neco_arc_mode { 1.5 } else { 1.0 }, // agency
+                        agency_score,
                     );
 
                     if self.optimizer.should_inhibit(utility) && iteration > 1 {
