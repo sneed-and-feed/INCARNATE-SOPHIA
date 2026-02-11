@@ -161,7 +161,11 @@ pub fn scrub_context(text: &str) -> String {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
     
-    // 4. Remove divider debris
+    // 4. Remove divider debris and leaking internal instructions
+    if let Ok(re) = Regex::new(r"(?m)^.*(?:[Gg]lyph[Ww]ave|GLYPHWAVE|[Rr]esonance|[Ss]overeign [Mm]etadata).*$") {
+        cleaned = re.replace_all(&cleaned, "").to_string();
+    }
+
     if let Ok(re) = Regex::new(r"(?m)^[-=_]{3,}\s*$\n?") {
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
