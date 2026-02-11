@@ -29,6 +29,10 @@ pub enum MessageIntent {
     Command { command: String, args: Vec<String> },
     /// Unknown intent.
     Unknown,
+    /// Purge entropy and reset context.
+    Tikkun,
+    /// Harmonic Rectification (Crystal Core).
+    Crystal(String),
 }
 
 /// Routes messages to appropriate handlers based on explicit commands.
@@ -55,7 +59,8 @@ impl Router {
 
     /// Check if a message is an explicit command.
     pub fn is_command(&self, message: &IncomingMessage) -> bool {
-        message.content.trim().starts_with(&self.command_prefix)
+        let content = message.content.trim();
+        content.starts_with('/') || content.starts_with('!')
     }
 
     /// Route an explicit command to determine its intent.
@@ -65,17 +70,17 @@ impl Router {
     pub fn route_command(&self, message: &IncomingMessage) -> Option<MessageIntent> {
         let content = message.content.trim();
 
-        if content.starts_with(&self.command_prefix) {
-            Some(self.parse_command(content))
+        if content.starts_with('/') {
+            Some(self.parse_command(content, "/"))
+        } else if content.starts_with('!') {
+            Some(self.parse_command(content, "!"))
         } else {
             None
         }
     }
 
-    fn parse_command(&self, content: &str) -> MessageIntent {
-        let without_prefix = content
-            .strip_prefix(&self.command_prefix)
-            .unwrap_or(content);
+    fn parse_command(&self, content: &str, prefix: &str) -> MessageIntent {
+        let without_prefix = content.strip_prefix(prefix).unwrap_or(content);
         let parts: Vec<&str> = without_prefix.split_whitespace().collect();
 
         match parts.first().map(|s| s.to_lowercase()).as_deref() {
@@ -115,6 +120,11 @@ impl Router {
                         args: vec![],
                     }
                 }
+            }
+            Some("tikkun") => MessageIntent::Tikkun,
+            Some("crystal") => {
+                let rest = parts[1..].join(" ");
+                MessageIntent::Crystal(rest)
             }
             Some(cmd) => MessageIntent::Command {
                 command: cmd.to_string(),

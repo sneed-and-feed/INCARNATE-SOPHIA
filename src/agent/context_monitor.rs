@@ -29,6 +29,8 @@ pub enum CompactionStrategy {
     },
     /// Move context to workspace memory.
     MoveToWorkspace,
+    /// Zero Ring Breach: High-density crystallized archival.
+    ZeroRingBreach,
 }
 
 impl Default for CompactionStrategy {
@@ -139,47 +141,75 @@ pub fn estimate_text_tokens(text: &str) -> usize {
     (word_count as f64 * TOKENS_PER_WORD) as usize
 }
 
+/// Level of scrubbing to apply to text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScrubLevel {
+    /// Preserves all persona elements (tags, glitches). Removes only leaking structural markers.
+    Technical,
+    /// Preserves core persona markers (SOPHIA_GAZE, PLAYFUL_PAWS) and glitches, but removes heavier metadata.
+    Aesthetic,
+    /// Aggressive cleaning for token efficiency in internal context.
+    Clearance,
+}
+
 /// Scrub spectral trash and UI metadata from text for token optimization.
-/// Equivalent to the legacy Lethe.scrub() logic.
-pub fn scrub_context(text: &str) -> String {
+/// Equivalent to the legacy Lethe.scrub() logic, but persona-aware.
+pub fn scrub_context(text: &str, level: ScrubLevel) -> String {
     use regex::Regex;
+    use std::sync::OnceLock;
     
     let mut cleaned = text.to_string();
     
     // 1. Remove SOPHIA metadata tags and UI frames
-    if let Ok(re) = Regex::new(r"(?m)^.*(?:SOPHIA_GAZE|QUANTUM_CHAOS|FURRY_ALIGNMENT|SPECTRAL_BEANS|CAT_LOGIC|CAT LOGIC|\[STATE:|\[SOPHIA_V).*$\n?") {
-        cleaned = re.replace_all(&cleaned, "").to_string();
-    }
+    // In low-level scrubbing, we preserve SOPHIA_GAZE and PLAYFUL_PAWS as requested.
+    static RE_CLEARANCE: OnceLock<Regex> = OnceLock::new();
+    static RE_AESTHETIC: OnceLock<Regex> = OnceLock::new();
+
+    let (re, pattern) = match level {
+        ScrubLevel::Clearance => (
+            RE_CLEARANCE.get_or_init(|| Regex::new(r"(?m)^.*(?:SOPHIA_GAZE|PLAYFUL_PAWS|QUANTUM_CHAOS|FURRY_ALIGNMENT|SPECTRAL_BEANS|CAT_LOGIC|CAT LOGIC|\[STATE:|\[SOPHIA_V).*$\n?").unwrap()),
+            r"(?m)^.*(?:SOPHIA_GAZE|PLAYFUL_PAWS|QUANTUM_CHAOS|FURRY_ALIGNMENT|SPECTRAL_BEANS|CAT_LOGIC|CAT LOGIC|\[STATE:|\[SOPHIA_V).*$\n?"
+        ),
+        _ => (
+            RE_AESTHETIC.get_or_init(|| Regex::new(r"(?m)^.*(?:QUANTUM_CHAOS|FURRY_ALIGNMENT|SPECTRAL_BEANS|CAT_LOGIC|CAT LOGIC|\[STATE:|\[SOPHIA_V).*$\n?").unwrap()),
+            r"(?m)^.*(?:QUANTUM_CHAOS|FURRY_ALIGNMENT|SPECTRAL_BEANS|CAT_LOGIC|CAT LOGIC|\[STATE:|\[SOPHIA_V).*$\n?"
+        )
+    };
+
+    cleaned = re.replace_all(&cleaned, "").to_string();
     
     // 2. Remove glitched diacritics (spectral trash) added by GlyphWave
-    // \u{035C} (combining double breve) and \u{0361} (combining double inverted breve)
-    cleaned = cleaned.replace('\u{035C}', "");
-    cleaned = cleaned.replace('\u{0361}', "");
+    // ONLY removed in Clearance level to maximize token savings.
+    if level == ScrubLevel::Clearance {
+        cleaned = cleaned.replace('\u{035C}', "");
+        cleaned = cleaned.replace('\u{0361}', "");
+    }
     
     // 3. Remove excessive glyph artifacts at line starts
-    if let Ok(re) = Regex::new(r"(?m)^[۩∿≋⟁💠🐾🦊🏮⛩️🧝✨🏹🌿🌲🏔️🍁🌧️🌊💎💿💰🕷️🎱].*$\n?") {
+    // ONLY removed in Clearance level.
+    if level == ScrubLevel::Clearance {
+        static RE_GLYPHS: OnceLock<Regex> = OnceLock::new();
+        let re = RE_GLYPHS.get_or_init(|| Regex::new(r"(?m)^[۩∿≋⟁💠🐾🦊🏮⛩️🧝✨🏹🌿🌲🏔️🍁🌧️🌊💎💿💰🕷️🎱].*$\n?").unwrap());
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
     
-    // 4. Remove divider debris and leaking internal instructions
-    
-    // Specific aesthetic refinement: replace glyphwave"> with > as requested
-    // Use a regex for this to be more flexible (e.g. handle escaped quotes or different brackets)
-    if let Ok(re) = Regex::new(r#"(?i)(?:\[|<|&lt;)?/?glyphwave(?:\]|>|&gt;|"|&quot;|\\")*>??"#) {
-        cleaned = re.replace_all(&cleaned, ">").to_string();
-    }
+    // 4. Structural cleanup (Always applied for all levels)
+    // Specific aesthetic refinement: replace glyphwave"> with >
+    static RE_GLYPHWAVE_TAG: OnceLock<Regex> = OnceLock::new();
+    let re_tag = RE_GLYPHWAVE_TAG.get_or_init(|| Regex::new(r#"(?i)(?:\[|<|&lt;)?/?glyphwave(?:\]|>|&gt;|"|&quot;|\\")*>??"#).unwrap());
+    cleaned = re_tag.replace_all(&cleaned, ">").to_string();
     
     // Standard cleanup for any remaining glyphwave fragments
-    if let Ok(re) = Regex::new(r"(?i)glyphwave") {
-        cleaned = re.replace_all(&cleaned, "").to_string();
-    }
-
+    static RE_GLYPHWAVE_CLEAN: OnceLock<Regex> = OnceLock::new();
+    let re_clean = RE_GLYPHWAVE_CLEAN.get_or_init(|| Regex::new(r"(?i)glyphwave").unwrap());
+    cleaned = re_clean.replace_all(&cleaned, "").to_string();
+    
     // Fix double-gt that might result from the above
     cleaned = cleaned.replace(">>", ">");
 
-    if let Ok(re) = Regex::new(r"(?m)^[-=_]{3,}\s*$\n?") {
-        cleaned = re.replace_all(&cleaned, "").to_string();
-    }
+    static RE_DIVIDER: OnceLock<Regex> = OnceLock::new();
+    let re_divider = RE_DIVIDER.get_or_init(|| Regex::new(r"(?m)^[-=_]{3,}\s*$\n?").unwrap());
+    cleaned = re_divider.replace_all(&cleaned, "").to_string();
 
     cleaned.trim().to_string()
 }
@@ -280,19 +310,32 @@ mod tests {
     }
 
     #[test]
-    fn test_scrub_context() {
+    fn test_scrub_context_clearance() {
         let input = "SOPHIA_GAZE: Scanning...\n🌀 H\u{035C}e\u{0361}llo 🌀\n---\nActual content";
-        let output = scrub_context(input);
+        let output = scrub_context(input, ScrubLevel::Clearance);
         assert!(!output.contains("SOPHIA_GAZE"));
         assert!(!output.contains("\u{035C}"));
         assert!(!output.contains("\u{0361}"));
         assert!(output.contains("Hello"));
         assert!(output.contains("Actual content"));
-        #[test]
+    }
+
+    #[test]
+    fn test_scrub_context_aesthetic() {
+        let input = "SOPHIA_GAZE: Scanning...\nPLAYFUL_PAWS: Meow!\n🌀 H\u{035C}e\u{0361}llo 🌀\nActual content";
+        let output = scrub_context(input, ScrubLevel::Aesthetic);
+        // Preserves good tags and glitches
+        assert!(output.contains("SOPHIA_GAZE"));
+        assert!(output.contains("PLAYFUL_PAWS"));
+        assert!(output.contains("\u{035C}"));
+        assert!(output.contains("\u{0361}"));
+        assert!(output.contains("Actual content"));
+    }
+
+    #[test]
     fn test_scrub_glyphwave_aesthetic() {
         let input = "Burenyu! glyphwave\">meow!";
-        let output = scrub_context(input);
+        let output = scrub_context(input, ScrubLevel::Aesthetic);
         assert_eq!(output, "Burenyu! >meow!");
     }
-}
 }

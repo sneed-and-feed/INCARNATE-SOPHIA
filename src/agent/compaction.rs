@@ -62,6 +62,9 @@ impl ContextCompactor {
             CompactionStrategy::MoveToWorkspace => {
                 self.compact_to_workspace(thread, workspace).await?
             }
+            CompactionStrategy::ZeroRingBreach => {
+                self.compact_zero_ring_breach(thread, workspace).await?
+            }
         };
 
         let messages_after = thread.messages();
@@ -94,9 +97,15 @@ impl ContextCompactor {
         // Build messages for summarization
         let mut to_summarize = Vec::new();
         for turn in old_turns {
-            to_summarize.push(ChatMessage::user(&crate::agent::context_monitor::scrub_context(&turn.user_input)));
+            to_summarize.push(ChatMessage::user(&crate::agent::context_monitor::scrub_context(
+                &turn.user_input,
+                crate::agent::context_monitor::ScrubLevel::Clearance
+            )));
             if let Some(ref response) = turn.response {
-                to_summarize.push(ChatMessage::assistant(&crate::agent::context_monitor::scrub_context(response)));
+                to_summarize.push(ChatMessage::assistant(&crate::agent::context_monitor::scrub_context(
+                    response,
+                    crate::agent::context_monitor::ScrubLevel::Clearance
+                )));
             }
         }
 
@@ -166,6 +175,40 @@ impl ContextCompactor {
             turns_removed: turns_to_remove,
             summary_written: written,
             summary: None,
+        })
+    }
+
+    /// Compact using Zero Ring Breach (Crystallization).
+    async fn compact_zero_ring_breach(
+        &self,
+        thread: &mut Thread,
+        workspace: Option<&Workspace>,
+    ) -> Result<CompactionPartial, Error> {
+        let keep_recent = 5;
+        if thread.turns.len() <= keep_recent {
+            return Ok(CompactionPartial::empty());
+        }
+
+        let turns_to_remove = thread.turns.len() - keep_recent;
+        let old_turns = &thread.turns[..turns_to_remove];
+
+        // Format turns with high-strangeness density markers
+        let content = format_turns_for_crystallization(old_turns);
+
+        // Write to workspace
+        let written = if let Some(ws) = workspace {
+            self.write_crystallized_context_to_workspace(ws, &content).await.is_ok()
+        } else {
+            false
+        };
+
+        // Truncate
+        thread.truncate_turns(keep_recent);
+
+        Ok(CompactionPartial {
+            turns_removed: turns_to_remove,
+            summary_written: written,
+            summary: Some("[Zero Ring Breach: Crystallization Complete]".to_string()),
         })
     }
 
@@ -254,6 +297,25 @@ Be brief but capture all important details. Use bullet points."#,
             .await?;
         Ok(())
     }
+
+    /// Write crystallized context to workspace for archival.
+    async fn write_crystallized_context_to_workspace(
+        &self,
+        workspace: &Workspace,
+        content: &str,
+    ) -> Result<(), Error> {
+        let date = Utc::now().format("%Y-%m-%d");
+        let entry = format!(
+            "\n## 💎 Zero Ring Breach: Crystallized Context ({}) 💎\n\n{}\n",
+            Utc::now().format("%H:%M UTC"),
+            content
+        );
+
+        workspace
+            .append(&format!("daily/{}.md", date), &entry)
+            .await?;
+        Ok(())
+    }
 }
 
 /// Partial result during compaction (internal).
@@ -293,6 +355,19 @@ fn format_turns_for_storage(turns: &[crate::agent::session::Turn]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+/// Format turns for Zero Ring Breach crystallization.
+fn format_turns_for_crystallization(turns: &[crate::agent::session::Turn]) -> String {
+    let mut s = String::from("> [!IMPORTANT]\n> **COHERENCE SCALE**: 💎💎💎💎💎\n\n");
+    for turn in turns {
+        s.push_str(&format!("### TURN_{} [{}](LDM)\n", turn.turn_number + 1, chrono::Utc::now().format("%H%M")));
+        s.push_str(&format!("**U**: {}\n", turn.user_input));
+        if let Some(ref response) = turn.response {
+            s.push_str(&format!("**A**: {}\n", response));
+        }
+        s.push_str("---\n");
+    }
+    s
 }
 
 #[cfg(test)]

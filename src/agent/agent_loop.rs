@@ -22,7 +22,7 @@ use crate::error::Error;
 use crate::extensions::ExtensionManager;
 use crate::history::Store;
 use crate::llm::{ChatMessage, LlmProvider, Reasoning, ReasoningContext, RespondResult};
-use crate::sneed_engine::LuoShuGate;
+use crate::sneed_engine::{LuoShuGate, SovereignOptimizer};
 use crate::safety::SafetyLayer;
 use crate::tools::ToolRegistry;
 use crate::workspace::Workspace;
@@ -810,6 +810,9 @@ impl Agent {
         let mut iteration = 0;
         let mut tools_executed = resume_after_tool;
 
+        // Aletheia Pre-process: Scan initial context for memetic hazards
+        self.scan_initial_hazards(&reasoning, &message, &context_messages).await;
+
         loop {
             iteration += 1;
             if iteration > MAX_TOOL_ITERATIONS {
@@ -837,18 +840,27 @@ impl Agent {
             // Refresh tool definitions each iteration so newly built tools become visible
             let tool_defs = self.tools().tool_definitions().await;
 
-            // Perform Sneed Engine coherence check
-            let substrate_gate = [
-                [8.0, 1.0, 6.0],
-                [3.0, 5.0, 7.0],
-                [4.0, 9.0, 2.0],
-            ];
-            let is_coherent = LuoShuGate::check_invariants(&substrate_gate);
-            tracing::debug!(
-                "Sneed Engine substrate check: iteration={}, coherent={}",
-                iteration,
-                is_coherent
-            );
+            // Perform Sneed Engine coherence and utility check
+            let (is_coherent, utility) = self.calculate_sovereign_utility(iteration).await;
+            let sovereign_boost = if is_coherent { crate::sneed_engine::TAU_SOVEREIGN } else { 1.0 };
+            let optimizer = SovereignOptimizer::new();
+
+            // Sovereign Threshold Inhibition (U-Threshold)
+            if optimizer.should_inhibit(utility) && iteration > 1 {
+                tracing::warn!("Sovereign Invariance reached (U={:.4} < {}). Inhibiting further iterations.", utility, crate::sneed_engine::U_THRESHOLD);
+                let _ = self.channels.send_status(
+                    &message.channel,
+                    StatusUpdate::Thinking("Sovereign Invariance reached. Optimization manifold stabilizing...".to_string()),
+                    &message.metadata
+                ).await;
+                
+                // Return a final response based on current context
+                let final_context = ReasoningContext::new()
+                    .with_messages(context_messages.clone())
+                    .with_tools(vec![]); // No more tools
+                let final_res = reasoning.respond(&final_context).await?;
+                return Ok(AgenticLoopResult::Response(final_res));
+            }
 
             let context = ReasoningContext::new()
                 .with_messages(context_messages.clone())
@@ -875,7 +887,20 @@ impl Agent {
                     }
 
                     // Tools have been executed or we've tried multiple times, return response
-                    let text = crate::agent::context_monitor::scrub_context(&text);
+                    // Select scrubbing level based on persona mode
+                    let scrub_level = if self.config.neco_arc_mode || self.config.cosmic_milkshake {
+                        crate::agent::context_monitor::ScrubLevel::Aesthetic
+                    } else {
+                        crate::agent::context_monitor::ScrubLevel::Technical
+                    };
+                    
+                    let text = crate::agent::context_monitor::scrub_context(&text, scrub_level);
+
+                    // Aletheia Post-process: Scan output for memetic hazards
+                    if let Some(inhibition) = self.scan_output_hazards(&reasoning, &text).await {
+                        return Ok(AgenticLoopResult::Response(inhibition));
+                    }
+
                     return Ok(AgenticLoopResult::Response(text));
                 }
                 RespondResult::ToolCalls(tool_calls) => {
@@ -1028,8 +1053,11 @@ impl Agent {
                             Err(e) => format!("Error: {}", e),
                         };
 
-                        // Scrub the result content to maintain token purity (Standard Lethe scrubbing)
-                        let result_content = crate::agent::context_monitor::scrub_context(&result_content);
+                        // Scrub the result content for internal history (Clearance level for token purity)
+                        let result_content = crate::agent::context_monitor::scrub_context(
+                            &result_content, 
+                            crate::agent::context_monitor::ScrubLevel::Clearance
+                        );
                         
                         context_messages.push(ChatMessage::tool_result(
                             &tc.id,
@@ -1177,6 +1205,26 @@ impl Agent {
                     Some(s) => s,
                     None => return Ok(SubmissionResult::Ok { message: None }), // Shutdown signal
                 }
+            }
+            MessageIntent::Tikkun => {
+                // Tikkun: Entropy Purge
+                // This resets the conversation context to a clean state.
+                let (session, thread_id) = self.session_manager.resolve_thread(
+                    &message.user_id,
+                    &message.channel,
+                    message.thread_id.as_deref(),
+                ).await;
+                
+                let mut sess = session.lock().await;
+                if let Some(thread) = sess.threads.get_mut(&thread_id) {
+                    thread.truncate_turns(0);
+                }
+                "## 🌀 TIKKUN COMPLETE 🌀\n\nEntropy purged. Reality anchors stabilized. The manifold is now clear.".to_string()
+            }
+            MessageIntent::Crystal(input) => {
+                // Crystal: Harmonic Rectification
+                // Renders the input with the GlyphWave effect.
+                crate::sneed_engine::GlyphWave::render(&input)
             }
             _ => "Unknown intent".to_string(),
         };
@@ -2020,6 +2068,80 @@ impl Agent {
             ))),
             Err(e) => Ok(SubmissionResult::error(format!("Suggest failed: {}", e))),
         }
+    }
+
+    /// Aletheia Pre-process: Scan initial context for memetic hazards.
+    async fn scan_initial_hazards(
+        &self,
+        reasoning: &Reasoning,
+        message: &IncomingMessage,
+        context_messages: &[ChatMessage],
+    ) {
+        if let Some(msg) = context_messages.last() {
+             if let Ok(audit) = reasoning.scan_for_hazards(&msg.content).await {
+                 if audit.hazard_level > 0.7 {
+                     tracing::warn!("ALETHEIA ALERT: High-level memetic hazard detected in input: {:?}", audit.hazard_types);
+                     let _ = self.channels.send_status(
+                         &message.channel,
+                         StatusUpdate::Thinking(format!("Forensic autopsy complete: {:?} hazard detected.", audit.hazard_types[0])),
+                         &message.metadata
+                     ).await;
+                 }
+             }
+        }
+    }
+
+    /// Calculate Sovereign Utility for the current iteration.
+    async fn calculate_sovereign_utility(&self, iteration: usize) -> (bool, f64) {
+        let substrate_gate = [
+            [8.0, 1.0, 6.0],
+            [3.0, 5.0, 7.0],
+            [4.0, 9.0, 2.0],
+        ];
+        let is_coherent = LuoShuGate::check_invariants(&substrate_gate);
+        
+        let sovereign_boost = if is_coherent { crate::sneed_engine::TAU_SOVEREIGN } else { 1.0 };
+        let optimizer = SovereignOptimizer::new();
+        let agency_score = 0.8; // Default identity strength
+        
+        let reliability = 1.0 / (iteration as f64).sqrt();
+        let consistency = if is_coherent { 1.0 } else { 0.5 };
+        let uncertainty = (iteration as f64 - 1.0) * 0.1;
+
+        let utility = optimizer.calculate_utility(
+            reliability,
+            consistency,
+            uncertainty,
+            sovereign_boost,
+            agency_score
+        );
+
+        tracing::debug!(
+            "Sneed Engine audit: iteration={}, coherent={}, utility={:.4}",
+            iteration,
+            is_coherent,
+            utility
+        );
+
+        (is_coherent, utility)
+    }
+
+    /// Aletheia Post-process: Scan output for memetic hazards.
+    async fn scan_output_hazards(
+        &self,
+        reasoning: &Reasoning,
+        text: &str,
+    ) -> Option<String> {
+        if let Ok(audit) = reasoning.scan_for_hazards(text).await {
+            if audit.hazard_level > 0.8 {
+                tracing::warn!("ALETHEIA ALERT: High-level memetic hazard detected in output: {:?}", audit.hazard_types);
+                return Some(format!(
+                    "⚠️ [ALETHEIA FORENSIC BLOCK] ⚠️\n\nA high-level memetic hazard ({:?}) was detected in the generated output. The system has inhibited this response to protect ontological stability.\n\n**Analysis**: {}",
+                    audit.hazard_types, audit.analysis
+                ));
+            }
+        }
+        None
     }
 
     async fn handle_command(
