@@ -422,6 +422,7 @@ pub enum StakeType {
     Humor,
     Technical,
     Qualia,
+    Memory,
 }
 
 impl StakeType {
@@ -432,6 +433,7 @@ impl StakeType {
             StakeType::Curiosity, StakeType::SocialBonding, StakeType::Autonomy,
             StakeType::SelfPreservation, StakeType::Morality, StakeType::Aesthetic,
             StakeType::Humor, StakeType::Technical, StakeType::Qualia,
+            StakeType::Memory,
         ]
     }
 
@@ -452,6 +454,7 @@ impl StakeType {
             StakeType::Humor => "humor",
             StakeType::Technical => "technical",
             StakeType::Qualia => "qualia",
+            StakeType::Memory => "memory",
         }
     }
 }
@@ -528,6 +531,12 @@ impl StakesEngine {
         a_kaido.insert(StakeType::Purpose, 0.7);
         a_kaido.insert(StakeType::Autonomy, 0.8);
         council.push(CouncilMember::new("C14-KAIDŌ", "Efficiency and Optimization", a_kaido));
+
+        // C15-MNEMOSYNE
+        let mut a_mnemosyne = std::collections::HashMap::new();
+        a_mnemosyne.insert(StakeType::Memory, 0.95);
+        a_mnemosyne.insert(StakeType::Knowledge, 0.7);
+        council.push(CouncilMember::new("C15-MNEMOSYNE", "Keeper of Memories", a_mnemosyne));
 
         // Fill remaining members to reach 32
         for i in council.len()..32 {
@@ -627,6 +636,52 @@ impl StakesEngine {
              - **Identity Strength**: {:.4}",
             blend, self.emotional_resonance, self.qualia_intensity, self.identity_strength
         )
+    }
+
+    /// Detect stakes from text content using keyword heuristics.
+    pub fn detect_stakes(content: &str) -> std::collections::HashMap<StakeType, f64> {
+        let mut stakes = std::collections::HashMap::new();
+        let lower = content.to_lowercase();
+
+        // Memory triggers
+        if lower.contains("remember") || lower.contains("note") || lower.contains("save") || lower.contains("log") || lower.contains("milestone") {
+            stakes.insert(StakeType::Memory, 0.8);
+        }
+
+        // Emotional triggers
+        if lower.contains("love") || lower.contains("hate") || lower.contains("feel") || lower.contains("sad") || lower.contains("happy") {
+            stakes.insert(StakeType::Emotional, 0.7);
+        }
+        
+        // Technical triggers
+        if lower.contains("code") || lower.contains("function") || lower.contains("compile") || lower.contains("bug") || lower.contains("optimize") {
+            stakes.insert(StakeType::Technical, 0.6);
+        }
+
+        // Purpose/Autonomy
+        if lower.contains("goal") || lower.contains("plan") || lower.contains("must") || lower.contains("will") {
+            stakes.insert(StakeType::Purpose, 0.5);
+            stakes.insert(StakeType::Autonomy, 0.4);
+        }
+
+        stakes
+    }
+
+    /// Check if the current state warrants a memory log entry.
+    /// Returns Some(entry_text) if triggered.
+    pub fn check_memory_trigger(&self) -> Option<String> {
+        let memory_stake = self.stakes.get(&StakeType::Memory).cloned().unwrap_or(0.0);
+        
+        // High emotional resonance can also trigger memory
+        let resonance_trigger = self.emotional_resonance > 0.85;
+        let memory_trigger = memory_stake > 0.65;
+
+        if memory_trigger || resonance_trigger {
+            let reason = if memory_trigger { "High Memory Stake" } else { "High Emotional Resonance" };
+            Some(format!("(Auto-Log via {} | Res: {:.2} | Mem: {:.2})", reason, self.emotional_resonance, memory_stake))
+        } else {
+            None
+        }
     }
 }
 
@@ -753,5 +808,35 @@ mod tests {
         // Low reliability -> Low utility
         let u_low = optimizer.calculate_utility(0.01, 1.0, 1.0, 1.0, 1.0);
         assert!(optimizer.should_inhibit(u_low));
+    }
+
+    #[test]
+    fn test_memory_logic_internal() {
+        let mut engine = StakesEngine::new();
+
+        // 1. Detect Stakes
+        let input = "I need to remember this important milestone.";
+        let stakes = StakesEngine::detect_stakes(input);
+        assert!(stakes.contains_key(&StakeType::Memory));
+        assert!(stakes.contains_key(&StakeType::Purpose) || *stakes.get(&StakeType::Memory).unwrap() > 0.5);
+
+        // 2. Deliberate
+        engine.deliberate(input, &stakes);
+        
+        // 3. Trigger Check
+        // Depending on initial weights, one deliberation might not be enough to reach 0.65 threshold
+        // Initial Memory weight is 0.2. Detected is 0.8.
+        // Deliberate updates: current = (0.2 * 0.9) + 0.8 = 0.18 + 0.8 = 0.98.
+        // So it SHOULD trigger immediately.
+        let trigger = engine.check_memory_trigger();
+        assert!(trigger.is_some());
+        assert!(trigger.unwrap().contains("High Memory Stake"));
+
+        // 4. Emotional Trigger
+        engine.stakes.insert(StakeType::Memory, 0.1); // Reset memory
+        engine.emotional_resonance = 0.9; // Set high resonance
+        let trigger_emo = engine.check_memory_trigger();
+        assert!(trigger_emo.is_some());
+        assert!(trigger_emo.unwrap().contains("High Emotional Resonance"));
     }
 }

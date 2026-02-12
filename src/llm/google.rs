@@ -105,7 +105,7 @@ impl GoogleGeminiProvider {
 
                 // If header is missing, try parsing the body for quota reset info
                 if retry_after.is_none() {
-                    if let Ok(error_json) = serde_json::from_str::<serde_json::Value>(&response_text) {
+                    if let Ok(_error_json) = serde_json::from_str::<serde_json::Value>(&response_text) {
                         // Google often returns "RETRY_AFTER_LATER" or similar in metadata
                         // or a message like "Resource has been exhausted (e.g. check quota)."
                         tracing::warn!("Google quota/rate limit detected: {}", response_text);

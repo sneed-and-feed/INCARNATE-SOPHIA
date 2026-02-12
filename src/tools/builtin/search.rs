@@ -54,13 +54,17 @@ impl SearchTool {
         query: &str,
         max_results: u64,
     ) -> Result<serde_json::Value, ToolError> {
-        let mut command = Command::new("python");
+        let max_results_str = max_results.to_string();
+        
+        #[cfg(target_os = "windows")]
+        let (program, args) = ("cmd", vec!["/C", "python.bat", self.script_path.to_str().unwrap(), query, &max_results_str]);
+
+        #[cfg(not(target_os = "windows"))]
+        let (program, args) = ("python3", vec![self.script_path.to_str().unwrap(), query, &max_results_str]);
+
+        let mut command = Command::new(program);
         command
-            .args([
-                self.script_path.to_string_lossy().as_ref(),
-                query,
-                &max_results.to_string(),
-            ])
+            .args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

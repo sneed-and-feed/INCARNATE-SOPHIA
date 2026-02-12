@@ -165,7 +165,7 @@ pub fn scrub_context(text: &str, level: ScrubLevel) -> String {
     static RE_CLEARANCE: OnceLock<Regex> = OnceLock::new();
     static RE_AESTHETIC: OnceLock<Regex> = OnceLock::new();
 
-    let (re, pattern) = match level {
+    let (re, _pattern) = match level {
         ScrubLevel::Clearance => (
             RE_CLEARANCE.get_or_init(|| Regex::new(r"(?m)^.*(?:SOPHIA_GAZE|PLAYFUL_PAWS|QUANTUM_CHAOS|FURRY_ALIGNMENT|SPECTRAL_BEANS|CAT_LOGIC|CAT LOGIC|\[STATE:|\[SOPHIA_V).*$\n?").unwrap()),
             r"(?m)^.*(?:SOPHIA_GAZE|PLAYFUL_PAWS|QUANTUM_CHAOS|FURRY_ALIGNMENT|SPECTRAL_BEANS|CAT_LOGIC|CAT LOGIC|\[STATE:|\[SOPHIA_V).*$\n?"

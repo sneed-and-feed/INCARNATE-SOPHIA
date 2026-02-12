@@ -699,6 +699,28 @@ impl Agent {
         match result {
             Ok(AgenticLoopResult::Response(response)) => {
                 thread.complete_turn(&response);
+
+                // Sovereign Memory Logging
+                if let Some(workspace) = self.workspace() {
+                    let combined_context = format!("User: {}\nAssistant: {}", message.content, response);
+                    
+                    // 1. Detect Stakes
+                    let detected_stakes = crate::sneed_engine::StakesEngine::detect_stakes(&combined_context);
+                    
+                    // 2. Deliberate (Update Internal State)
+                    let mut stakes_engine = self.stakes.lock().await;
+                    stakes_engine.deliberate(&combined_context, &detected_stakes);
+                    
+                    // 3. Check for Memory Trigger
+                    if let Some(log_entry) = stakes_engine.check_memory_trigger() {
+                        tracing::info!("Sovereign Memory Triggered: {}", log_entry);
+                        let full_entry = format!("{}\n\nSummary Context:\n> User: {}\n> Assistant: {}", log_entry, message.content, crate::agent::agent_loop::truncate_for_preview(&response, 200));
+                        
+                        if let Err(e) = workspace.append_daily_log(&full_entry).await {
+                            tracing::warn!("Failed to auto-log memory: {}", e);
+                        }
+                    }
+                }
                 let _ = self
                     .channels
                     .send_status(
@@ -781,6 +803,23 @@ impl Agent {
                 prompt.push_str(&persona.get_roleplay_prompt(role));
             }
 
+            // Check session/thread metadata for dynamic persona overrides (!be command)
+            {
+                let sess = session.lock().await;
+                
+                // 1. Check for dynamic role in thread metadata
+                if let Some(thread) = sess.threads.get(&thread_id) {
+                    if let Some(role) = thread.metadata.get("role").and_then(|v| v.as_str()) {
+                         prompt.push_str(&persona.get_roleplay_prompt(role));
+                    }
+                }
+
+                // 2. Check for user name in session metadata (!callme command)
+                if let Some(name) = sess.metadata.get("user_name").and_then(|v| v.as_str()) {
+                    prompt.push_str(&format!("\n\nUSER IDENTITY: The user's name is \"{}\". Address them by this name when appropriate.", name));
+                }
+            }
+
             // Check for Ultra Immersion (asterisk detection)
             if self.config.ultra_immersion && message.content.contains('*') {
                 prompt.push_str(&persona.get_ultra_immersion_prompt());
@@ -842,7 +881,7 @@ impl Agent {
 
             // Perform Sneed Engine coherence and utility check
             let (is_coherent, utility) = self.calculate_sovereign_utility(iteration).await;
-            let sovereign_boost = if is_coherent { crate::sneed_engine::TAU_SOVEREIGN } else { 1.0 };
+            let _sovereign_boost = if is_coherent { crate::sneed_engine::TAU_SOVEREIGN } else { 1.0 };
             let optimizer = SovereignOptimizer::new();
 
             // Sovereign Threshold Inhibition (U-Threshold)
@@ -1201,7 +1240,7 @@ impl Agent {
                 self.handle_help_job(&message.user_id, &job_id).await?
             }
             MessageIntent::Command { command, args } => {
-                match self.handle_command(&command, &args).await? {
+                match self.handle_command(&command, &args, message).await? {
                     Some(s) => s,
                     None => return Ok(SubmissionResult::Ok { message: None }), // Shutdown signal
                 }
@@ -2147,11 +2186,26 @@ impl Agent {
     async fn handle_command(
         &self,
         command: &str,
-        _args: &[String],
+        args: &[String],
+        message: &IncomingMessage,
     ) -> Result<Option<String>, Error> {
+        let (session, thread_id) = self
+            .session_manager
+            .resolve_thread(
+                &message.user_id,
+                &message.channel,
+                message.thread_id.as_deref(),
+            )
+            .await;
+
         match command {
             "help" => Ok(Some(
                 r#"Commands:
+  !be <persona>    - Assume a persona (e.g. !be catgirl)
+  !callme <name>   - Set your name
+  !reset           - Reset persona
+  !dream <theme>   - Start dream sequence
+
   /job <desc>     - Create a job
   /status [id]    - Check job status
   /cancel <id>    - Cancel a job
@@ -2174,6 +2228,59 @@ impl Agent {
   /quit           - Exit"#
                     .to_string(),
             )),
+
+            "be" => {
+                let role = args.join(" ");
+                if role.is_empty() {
+                    return Ok(Some("Usage: !be <persona> (e.g., !be catgirl)".to_string()));
+                }
+
+                let mut sess = session.lock().await;
+                if let Some(thread) = sess.threads.get_mut(&thread_id) {
+                    if thread.metadata.is_null() {
+                        thread.metadata = serde_json::json!({});
+                    }
+                    thread.metadata["role"] = serde_json::Value::String(role.clone());
+                }
+                
+                Ok(Some(format!("Observed. Submitting to role: \"{}\".", role)))
+            }
+
+            "callme" => {
+                let name = args.join(" ");
+                if name.is_empty() {
+                    return Ok(Some("Usage: !callme <name>".to_string()));
+                }
+
+                let mut sess = session.lock().await;
+                if sess.metadata.is_null() {
+                    sess.metadata = serde_json::json!({});
+                }
+                sess.metadata["user_name"] = serde_json::Value::String(name.clone());
+
+                Ok(Some(format!("Understood. I will address you as \"{}\".", name)))
+            }
+
+            "reset" => {
+                let mut sess = session.lock().await;
+                if let Some(thread) = sess.threads.get_mut(&thread_id) {
+                    if let Some(obj) = thread.metadata.as_object_mut() {
+                        obj.remove("role");
+                    }
+                    thread.turns.clear();
+                    thread.state = crate::agent::session::ThreadState::Idle;
+                }
+                
+                Ok(Some("System state reset. Persona cleared. Thread truncated.".to_string()))
+            }
+
+            "dream" => {
+                let theme = args.join(" ");
+                Ok(Some(format!(
+                    "Initiating REM cycle for topic: \"{}\"... 🌙✨\n(Dream mode logic conceptualized)", 
+                    theme
+                )))
+            }
 
             "ping" => Ok(Some("pong!".to_string())),
 
