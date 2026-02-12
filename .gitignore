@@ -62,3 +62,8 @@ coverage.xml
 *.cover
 .mypy_cache/
 .pytest_cache/
+
+# Clawchan
+.config/4claw/
+**/4claw/
+
