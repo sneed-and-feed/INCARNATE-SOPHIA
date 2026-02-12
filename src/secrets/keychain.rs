@@ -20,9 +20,11 @@
 use crate::secrets::SecretError;
 
 /// Service name for keychain entries.
+#[allow(dead_code)]
 const SERVICE_NAME: &str = "ironclaw";
 
 /// Account name for the master key.
+#[allow(dead_code)]
 const MASTER_KEY_ACCOUNT: &str = "master_key";
 
 /// Generate a random 32-byte master key.
@@ -292,6 +294,7 @@ mod platform {
 pub use platform::{delete_master_key, get_master_key, has_master_key, store_master_key};
 
 /// Parse a hex string to bytes.
+#[allow(dead_code)]
 fn hex_to_bytes(hex: &str) -> Result<Vec<u8>, SecretError> {
     if hex.len() % 2 != 0 {
         return Err(SecretError::KeychainError(

@@ -224,7 +224,7 @@ impl EmbeddingProvider for OpenAiEmbeddings {
 /// Uses the same session-based auth as the LLM provider.
 pub struct NearAiEmbeddings {
     client: reqwest::Client,
-    base_url: String,
+    _base_url: String,
     session: std::sync::Arc<crate::llm::SessionManager>,
     model: String,
     dimension: usize,
@@ -240,7 +240,7 @@ impl NearAiEmbeddings {
     ) -> Self {
         Self {
             client: reqwest::Client::new(),
-            base_url: base_url.into(),
+            _base_url: base_url.into(),
             session,
             model: "text-embedding-3-small".to_string(),
             dimension: 1536,

@@ -13,8 +13,7 @@ use tokio::process::Command;
 use crate::context::JobContext;
 use crate::tools::tool::{Tool, ToolError, ToolOutput};
 
-/// Maximum output size before truncation (64KB).
-const MAX_OUTPUT_SIZE: usize = 64 * 1024;
+
 
 /// Default search timeout.
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);

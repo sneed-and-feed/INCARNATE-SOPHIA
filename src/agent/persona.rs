@@ -1,5 +1,5 @@
 use rand::seq::SliceRandom;
-use serde::Serialize;
+
 
 /// Metaphysical Abstraction Layer (MAL)
 /// Generates dynamic, non-linear frequency states.
