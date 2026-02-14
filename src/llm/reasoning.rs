@@ -584,35 +584,63 @@ fn strip_reasoning_patterns(text: &str) -> String {
         return text.to_string();
     }
 
-    // If text already looks clean (starts with actual content), return as-is
-    // Actual content often starts with: markdown, code blocks, direct statements
-    let first_char = text.chars().next().unwrap_or(' ');
-    if first_char == '#' || first_char == '`' || first_char == '*' || first_char == '-' {
-        return text.to_string();
-    }
-
-    // Look for paragraph break followed by actual content
-    // Often models output: "thinking...\n\nActual response"
-    if let Some(idx) = text.find("\n\n") {
-        let after_break = text[idx + 2..].trim();
-        if !after_break.is_empty() {
-            let first_after = after_break.chars().next().unwrap_or(' ');
-            // If it starts with typical response markers, use content after break
-            if first_after == '#'
-                || first_after == '`'
-                || first_after == '*'
-                || first_after == '-'
-                || after_break.to_lowercase().starts_with("here")
-                || after_break.to_lowercase().starts_with("i'd")
-                || after_break.to_lowercase().starts_with("sure")
-            {
-                return after_break.to_string();
+    // Common reasoning prefixes to strip entirely if they appear at the very start
+    let prefixes = ["thought:", "thinking:", "reasoning:", "internal:"];
+    let mut current_text = text.to_string();
+    let lower_text = current_text.to_lowercase();
+    for prefix in prefixes {
+        if lower_text.starts_with(prefix) {
+            if let Some(idx) = current_text.find('\n') {
+                current_text = current_text[idx..].trim().to_string();
             }
         }
     }
 
-    // Return original if no clear split found
-    text.to_string()
+    // If text already looks clean (starts with actual content), return as-is
+    // Actual content often starts with: markdown, code blocks, direct statements
+    let first_char = current_text.chars().next().unwrap_or(' ');
+    if first_char == '#' || first_char == '`' || first_char == '*' || first_char == '-' || first_char == '>' {
+        return current_text;
+    }
+
+    // Look for paragraph break OR single newline followed by a structural marker
+    // Paragraph break fallback:
+    if let Some(idx) = current_text.find("\n\n") {
+        let after_break = current_text[idx + 2..].trim();
+        if is_likely_content(after_break) {
+            return after_break.to_string();
+        }
+    }
+
+    // Single newline fallback (more aggressive):
+    // If we find a newline followed by a structural marker, assume everything before it was reasoning.
+    if let Some(idx) = current_text.find('\n') {
+        let after_newline = current_text[idx + 1..].trim();
+        if !after_newline.is_empty() {
+            let first_after = after_newline.chars().next().unwrap_or(' ');
+            if first_after == '#' || first_after == '`' || first_after == '*' || first_after == '-' || first_after == '>' {
+                return after_newline.to_string();
+            }
+        }
+    }
+
+    current_text
+}
+
+/// Helper to determine if a string slice is likely actual content vs reasoning.
+fn is_likely_content(text: &str) -> bool {
+    if text.is_empty() { return false; }
+    let first_after = text.chars().next().unwrap_or(' ');
+    let lower = text.to_lowercase();
+    first_after == '#'
+        || first_after == '`'
+        || first_after == '*'
+        || first_after == '-'
+        || first_after == '>'
+        || lower.starts_with("here")
+        || lower.starts_with("i'd")
+        || lower.starts_with("sure")
+        || lower.starts_with("okay")
 }
 
 #[cfg(test)]
