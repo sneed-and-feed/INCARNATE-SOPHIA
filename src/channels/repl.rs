@@ -29,7 +29,7 @@ use rustyline::highlight::Highlighter;
 use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
 use rustyline::{CompletionType, Editor, Helper};
-use termimad::MadSkin;
+
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -101,20 +101,7 @@ impl Highlighter for ReplHelper {
 impl Validator for ReplHelper {}
 impl Helper for ReplHelper {}
 
-/// Build a termimad skin with our color scheme.
-fn make_skin() -> MadSkin {
-    let mut skin = MadSkin::default();
-    skin.set_headers_fg(termimad::crossterm::style::Color::Yellow);
-    skin.bold.set_fg(termimad::crossterm::style::Color::White);
-    skin.italic
-        .set_fg(termimad::crossterm::style::Color::Magenta);
-    skin.inline_code
-        .set_fg(termimad::crossterm::style::Color::Green);
-    skin.code_block
-        .set_fg(termimad::crossterm::style::Color::Green);
-    skin.code_block.left_margin = 2;
-    skin
-}
+
 
 /// Format JSON params as `key: value` lines for the approval card.
 fn format_json_params(params: &serde_json::Value, indent: &str) -> String {
@@ -368,11 +355,10 @@ impl Channel for ReplChannel {
         let sep_width = width.min(80);
         eprintln!("\x1b[90m{}\x1b[0m", "\u{2500}".repeat(sep_width));
 
-        // Render markdown
-        let skin = make_skin();
-        let text = termimad::FmtText::from(&skin, &response.content, Some(width));
+        // Plain text output
+        print!("{}", response.content);
 
-        print!("{text}");
+
         println!();
         Ok(())
     }
@@ -472,6 +458,31 @@ impl Channel for ReplChannel {
                 eprintln!("  {bot_border}");
                 eprintln!();
             }
+            StatusUpdate::JobStarted {
+                job_id,
+                title,
+                browse_url: _,
+            } => {
+                eprintln!("  \x1b[35m\u{25CB} Job started: {title} ({job_id})\x1b[0m");
+            }
+            StatusUpdate::AuthRequired {
+                extension_name,
+                instructions,
+                ..
+            } => {
+                eprintln!("\x1b[33m\u{25CB}      Auth required for {extension_name}: {}\x1b[0m", instructions.as_deref().unwrap_or(""));
+            }
+            StatusUpdate::AuthCompleted {
+                extension_name,
+                success,
+                message: _,
+            } => {
+                if success {
+                    eprintln!("  \x1b[32m\u{25CF} {extension_name} authenticated\x1b[0m");
+                } else {
+                    eprintln!("  \x1b[31m\u{2717} {extension_name} authentication failed\x1b[0m");
+                }
+            }
         }
         Ok(())
     }
@@ -481,14 +492,7 @@ impl Channel for ReplChannel {
         _user_id: &str,
         response: OutgoingResponse,
     ) -> Result<(), ChannelError> {
-        let skin = make_skin();
-        let width = crossterm::terminal::size()
-            .map(|(w, _)| w as usize)
-            .unwrap_or(80);
-
-        eprintln!("\x1b[34m\u{25CF}\x1b[0m notification");
-        let text = termimad::FmtText::from(&skin, &response.content, Some(width));
-        eprint!("{text}");
+        eprintln!("{}", response.content);
         eprintln!();
         Ok(())
     }

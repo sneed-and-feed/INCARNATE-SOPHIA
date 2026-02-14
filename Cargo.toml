@@ -2,7 +2,7 @@
 name = "ironclaw"
 version = "5.3.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.92"
 description = "Secure personal AI assistant that protects your data and expands its capabilities on the fly"
 license = "MIT OR Apache-2.0"
 default-run = "ironclaw"
@@ -54,12 +54,15 @@ clap = { version = "4", features = ["derive", "env"] }
 # Terminal
 crossterm = "0.28"
 rustyline = { version = "17", features = ["derive", "with-file-history"] }
-termimad = "0.34"
+
 
 # Channel integrations
 axum = { version = "0.8", features = ["ws"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
+
+# Cron scheduling for routines
+cron = "0.13"
 
 # Safety/sanitization
 regex = "1"
@@ -67,6 +70,7 @@ aho-corasick = "1"
 
 # Filesystem paths
 dirs = "6"
+fs4 = "0.6"
 
 # Secrecy for sensitive values
 secrecy = { version = "0.10", features = ["serde"] }
@@ -92,6 +96,10 @@ hkdf = "0.12"
 sha2 = "0.10"
 blake3 = "1"
 rand = "0.8"
+subtle = "2"  # Constant-time comparisons for token validation
+
+# Multi-provider LLM support
+rig-core = "0.30"
 
 # Docker sandbox
 bollard = "0.18"
@@ -102,6 +110,7 @@ hyper-util = { version = "0.1", features = ["server", "tokio", "http1", "http2"]
 http-body-util = "0.1"
 bytes = "1"
 base64 = "0.22.1"
+mime_guess = "2.0.5"
 
 # Local Embeddings
 fastembed = "4" 

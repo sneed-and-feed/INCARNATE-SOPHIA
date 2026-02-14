@@ -5,6 +5,8 @@ use std::sync::Arc;
 use clap::Parser;
 use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
+use ironclaw::db::Database;
+
 use ironclaw::{
     agent::{Agent, AgentDeps, SessionManager},
     channels::{
@@ -24,6 +26,10 @@ use ironclaw::{
     extensions::ExtensionManager,
     history::Store,
     llm::{SessionConfig, create_llm_provider, create_session_manager},
+    orchestrator::{
+        ContainerJobConfig, ContainerJobManager, OrchestratorApi, TokenStore,
+        api::OrchestratorState,
+    },
     safety::SafetyLayer,
     secrets::{PostgresSecretsStore, SecretsCrypto, SecretsStore},
     settings::Settings,
@@ -751,8 +757,67 @@ async fn main() -> anyhow::Result<()> {
     // Create session manager (shared between agent and web gateway)
     let session_manager = Arc::new(SessionManager::new());
 
+    // Shared state for job events (used by both orchestrator and web gateway)
+    let job_event_tx: Option<
+        tokio::sync::broadcast::Sender<(uuid::Uuid, ironclaw::channels::web::types::SseEvent)>,
+    > = if config.sandbox.enabled {
+        let (tx, _) = tokio::sync::broadcast::channel(256);
+        Some(tx)
+    } else {
+        None
+    };
+    let prompt_queue = Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<
+        uuid::Uuid,
+        std::collections::VecDeque<ironclaw::orchestrator::api::PendingPrompt>,
+    >::new()));
+
+    let container_job_manager: Option<Arc<ContainerJobManager>> = if config.sandbox.enabled {
+        let token_store = TokenStore::new();
+        let job_config = ContainerJobConfig {
+            image: config.sandbox.image.clone(),
+            memory_limit_mb: config.sandbox.memory_limit_mb,
+            cpu_shares: config.sandbox.cpu_shares,
+            orchestrator_port: 50051,
+            claude_config_dir: if config.claude_code.enabled {
+                Some(config.claude_code.config_dir.clone())
+            } else {
+                None
+            },
+            claude_code_model: config.claude_code.model.clone(),
+            claude_code_max_turns: config.claude_code.max_turns,
+            claude_code_memory_limit_mb: config.claude_code.memory_limit_mb,
+            claude_code_allowed_tools: config.claude_code.allowed_tools.clone(),
+        };
+        let jm = Arc::new(ContainerJobManager::new(job_config, token_store.clone()));
+
+        // Start the orchestrator internal API in the background
+        let orchestrator_state = OrchestratorState {
+            llm: llm.clone(),
+            job_manager: Arc::clone(&jm),
+            token_store,
+            job_event_tx: job_event_tx.clone(),
+            prompt_queue: Arc::clone(&prompt_queue),
+            store: store.clone().map(|s| s as Arc<dyn Database>),
+        };
+
+        tokio::spawn(async move {
+            if let Err(e) = OrchestratorApi::start(orchestrator_state, 50051).await {
+                tracing::error!("Orchestrator API failed: {}", e);
+            }
+        });
+
+        tracing::info!("Orchestrator API started on :50051, sandbox delegation enabled");
+        Some(jm)
+    } else {
+        None
+    };
+
     // Register job tools
-    tools.register_job_tools(Arc::clone(&context_manager));
+    tools.register_job_tools(
+        Arc::clone(&context_manager),
+        container_job_manager.clone(),
+        store.clone().map(|s| s as Arc<dyn Database>),
+    );
 
     // Add web gateway channel if configured
     if let Some(ref gw_config) = config.channels.gateway {
@@ -760,18 +825,46 @@ async fn main() -> anyhow::Result<()> {
         if let Some(ref ws) = workspace {
             gw = gw.with_workspace(Arc::clone(ws));
         }
-        gw = gw.with_context_manager(Arc::clone(&context_manager));
+        if let Some(ref jm) = container_job_manager {
+            gw = gw.with_job_manager(Arc::clone(jm));
+        }
         gw = gw.with_session_manager(Arc::clone(&session_manager));
         gw = gw.with_log_broadcaster(Arc::clone(&log_broadcaster));
         gw = gw.with_tool_registry(Arc::clone(&tools));
         if let Some(ref ext_mgr) = extension_manager {
             gw = gw.with_extension_manager(Arc::clone(ext_mgr));
         }
+        if let Some(ref s) = store {
+            gw = gw.with_store(Arc::clone(s) as Arc<dyn Database>);
+        }
+        if let Some(ref jm) = container_job_manager {
+            gw = gw.with_job_manager(Arc::clone(jm));
+        }
+        if config.sandbox.enabled {
+            gw = gw.with_prompt_queue(Arc::clone(&prompt_queue));
+
+            // Spawn a task to forward job events from the broadcast channel to SSE
+            if let Some(ref tx) = job_event_tx {
+                let mut rx = tx.subscribe();
+                let gw_state = Arc::clone(gw.state());
+                tokio::spawn(async move {
+                    while let Ok((_job_id, event)) = rx.recv().await {
+                        gw_state.sse.broadcast(event);
+                    }
+                });
+            }
+        }
 
         tracing::info!(
             "Web gateway enabled on {}:{}",
             gw_config.host,
             gw_config.port
+        );
+        tracing::info!(
+            "Web UI: http://{}:{}/?token={}",
+            gw_config.host,
+            gw_config.port,
+            gw.auth_token()
         );
 
         channels.add(Box::new(gw));

@@ -114,12 +114,31 @@ pub enum StatusUpdate {
     StreamChunk(String),
     /// General status message.
     Status(String),
+    /// A background job has started.
+    JobStarted {
+        job_id: String,
+        title: String,
+        browse_url: String,
+    },
     /// Tool requires user approval before execution.
     ApprovalNeeded {
         request_id: String,
         tool_name: String,
         description: String,
         parameters: serde_json::Value,
+    },
+    /// Extension requires authentication.
+    AuthRequired {
+        extension_name: String,
+        instructions: Option<String>,
+        auth_url: Option<String>,
+        setup_url: Option<String>,
+    },
+    /// Authentication process completed.
+    AuthCompleted {
+        extension_name: String,
+        success: bool,
+        message: String,
     },
 }
 

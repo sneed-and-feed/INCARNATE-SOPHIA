@@ -71,8 +71,17 @@ pub async fn handle_ws_connection(socket: WebSocket, state: Arc<GatewayState>) {
     }
     let tracker_for_drop = state.ws_tracker.clone();
 
-    // Subscribe to broadcast events (same source as SSE)
-    let mut event_stream = Box::pin(state.sse.subscribe_raw());
+    // Subscribe to broadcast events (same source as SSE).
+    // Reject if we've hit the connection limit.
+    let Some(raw_stream) = state.sse.subscribe_raw() else {
+        tracing::warn!("WebSocket rejected: too many connections");
+        // Decrement the WS tracker we already incremented above.
+        if let Some(ref tracker) = tracker_for_drop {
+            tracker.decrement();
+        }
+        return;
+    };
+    let mut event_stream = Box::pin(raw_stream);
 
     // Channel for the sender task to receive messages from both
     // the broadcast stream and any direct sends (like Pong)
@@ -170,7 +179,11 @@ async fn handle_client_message(
                     .await;
             }
         }
-        WsClientMessage::Approval { request_id, action } => {
+        WsClientMessage::Approval {
+            request_id,
+            action,
+            thread_id,
+        } => {
             let (approved, always) = match action.as_str() {
                 "approve" => (true, false),
                 "always" => (true, true),
@@ -214,11 +227,70 @@ async fn handle_client_message(
                 }
             };
 
-            let msg = IncomingMessage::new("gateway", user_id, content);
+            let mut msg = IncomingMessage::new("gateway", user_id, content);
+            if let Some(ref tid) = thread_id {
+                msg = msg.with_thread(tid);
+            }
             let tx_guard = state.msg_tx.read().await;
             if let Some(ref tx) = *tx_guard {
                 let _ = tx.send(msg).await;
             }
+        }
+        WsClientMessage::AuthToken {
+            extension_name,
+            token,
+        } => {
+            if let Some(ref ext_mgr) = state.extension_manager {
+                match ext_mgr.auth(&extension_name, Some(&token)).await {
+                    Ok(result) if result.status == "authenticated" => {
+                        let msg = match ext_mgr.activate(&extension_name).await {
+                            Ok(r) => format!(
+                                "{} authenticated ({} tools loaded)",
+                                extension_name,
+                                r.tools_loaded.len()
+                            ),
+                            Err(e) => format!(
+                                "{} authenticated but activation failed: {}",
+                                extension_name, e
+                            ),
+                        };
+                        crate::channels::web::server::clear_auth_mode(state).await;
+                        state
+                            .sse
+                            .broadcast(crate::channels::web::types::SseEvent::AuthCompleted {
+                                extension_name,
+                                success: true,
+                                message: msg,
+                            });
+                    }
+                    Ok(result) => {
+                        state
+                            .sse
+                            .broadcast(crate::channels::web::types::SseEvent::AuthRequired {
+                                extension_name,
+                                instructions: result.instructions,
+                                auth_url: result.auth_url,
+                                setup_url: result.setup_url,
+                            });
+                    }
+                    Err(e) => {
+                        let _ = direct_tx
+                            .send(WsServerMessage::Error {
+                                message: format!("Auth failed: {}", e),
+                            })
+                            .await;
+                    }
+                }
+            } else {
+                let _ = direct_tx
+                    .send(WsServerMessage::Error {
+                        message: "Extension manager not available".to_string(),
+                    })
+                    .await;
+            }
+        }
+        WsClientMessage::AuthCancel { .. } => {
+            crate::channels::web::server::clear_auth_mode(state).await;
         }
         WsClientMessage::Ping => {
             let _ = direct_tx.send(WsServerMessage::Pong).await;
@@ -328,6 +400,7 @@ mod tests {
             WsClientMessage::Approval {
                 request_id: request_id.to_string(),
                 action: "approve".to_string(),
+                thread_id: Some("thread-42".to_string()),
             },
             &state,
             "user1",
@@ -338,6 +411,8 @@ mod tests {
         let incoming = agent_rx.recv().await.unwrap();
         // The content should be a serialized ExecApproval
         assert!(incoming.content.contains("ExecApproval"));
+        // Thread should be forwarded onto the IncomingMessage.
+        assert_eq!(incoming.thread_id.as_deref(), Some("thread-42"));
     }
 
     #[tokio::test]
@@ -349,6 +424,7 @@ mod tests {
             WsClientMessage::Approval {
                 request_id: Uuid::new_v4().to_string(),
                 action: "maybe".to_string(),
+                thread_id: None,
             },
             &state,
             "user1",
@@ -374,6 +450,7 @@ mod tests {
             WsClientMessage::Approval {
                 request_id: "not-a-uuid".to_string(),
                 action: "approve".to_string(),
+                thread_id: None,
             },
             &state,
             "user1",
@@ -398,14 +475,18 @@ mod tests {
             msg_tx: tokio::sync::RwLock::new(msg_tx),
             sse: SseManager::new(),
             workspace: None,
-            context_manager: None,
             session_manager: None,
             log_broadcaster: None,
             extension_manager: None,
             tool_registry: None,
+            store: None,
+            job_manager: None,
+            prompt_queue: None,
             user_id: "test".to_string(),
             shutdown_tx: tokio::sync::RwLock::new(None),
             ws_tracker: Some(Arc::new(WsConnectionTracker::new())),
+            llm_provider: None,
+            chat_rate_limiter: crate::channels::web::server::RateLimiter::new(30, 60),
         }
     }
 }

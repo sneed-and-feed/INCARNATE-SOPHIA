@@ -17,6 +17,7 @@ pub mod persona;
 mod router;
 mod scheduler;
 mod self_repair;
+pub mod routine;
 pub mod session;
 mod session_manager;
 pub mod submission;

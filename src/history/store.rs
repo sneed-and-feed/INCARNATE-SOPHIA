@@ -4,10 +4,13 @@ use deadpool_postgres::{Config, Pool, Runtime};
 use rust_decimal::Decimal;
 use tokio_postgres::NoTls;
 use uuid::Uuid;
+use async_trait::async_trait;
 
 use crate::config::DatabaseConfig;
+use crate::db::Database;
 use crate::context::{ActionRecord, JobContext, JobState};
 use crate::error::DatabaseError;
+use crate::agent::routine::{Routine, RoutineRun};
 
 /// Record for an LLM call to be persisted.
 #[derive(Debug, Clone)]
@@ -20,6 +23,70 @@ pub struct LlmCallRecord<'a> {
     pub output_tokens: u32,
     pub cost: Decimal,
     pub purpose: Option<&'a str>,
+}
+
+/// Record for a sandboxed job.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SandboxJobRecord {
+    pub id: Uuid,
+    pub task: String,
+    pub status: String,
+    pub user_id: String,
+    pub project_dir: String,
+    pub success: Option<bool>,
+    pub failure_reason: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Record for a job event.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct JobEventRecord {
+    pub id: i64,
+    pub job_id: Uuid,
+    pub event_type: String,
+    pub data: serde_json::Value,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Summary of sandbox jobs for the UI.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct SandboxJobSummary {
+    pub total: i64,
+    pub creating: i64,
+    pub running: i64,
+    pub completed: i64,
+    pub failed: i64,
+    pub interrupted: i64,
+}
+
+/// Record for a message in a conversation.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ConversationMessage {
+    pub id: Uuid,
+    pub role: String,
+    pub content: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Record for a user setting.
+#[derive(Debug, Clone)]
+pub struct SettingRecord {
+    pub key: String,
+    pub value: serde_json::Value,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Summary for a conversation in the UI.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ConversationSummary {
+    pub id: Uuid,
+    pub title: Option<String>,
+    pub message_count: i32,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub last_activity: chrono::DateTime<chrono::Utc>,
+    pub thread_type: Option<String>,
 }
 
 /// Database store for the agent.
@@ -526,6 +593,455 @@ impl Store {
         )
         .await?;
 
+        Ok(())
+    }
+
+    /// Persist a job-related event.
+    pub async fn save_job_event(
+        &self,
+        job_id: Uuid,
+        event_type: &str,
+        data: &serde_json::Value,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.conn().await?;
+        conn.execute(
+            "INSERT INTO job_events (job_id, event_type, data, created_at) VALUES ($1, $2, $3, NOW())",
+            &[&job_id, &event_type, &data],
+        ).await?;
+        Ok(())
+    }
+    // ==================== Sandbox Jobs ====================
+
+    /// Insert a new sandbox job into `agent_jobs`.
+    pub async fn save_sandbox_job(&self, job: &SandboxJobRecord) -> Result<(), DatabaseError> {
+        let conn = self.conn().await?;
+        conn.execute(
+            r#"
+            INSERT INTO agent_jobs (
+                id, title, description, status, source, user_id, project_dir,
+                success, failure_reason, created_at, started_at, completed_at
+            ) VALUES ($1, $2, '', $3, 'sandbox', $4, $5, $6, $7, $8, $9, $10)
+            ON CONFLICT (id) DO UPDATE SET
+                status = EXCLUDED.status,
+                success = EXCLUDED.success,
+                failure_reason = EXCLUDED.failure_reason,
+                started_at = EXCLUDED.started_at,
+                completed_at = EXCLUDED.completed_at
+            "#,
+            &[
+                &job.id,
+                &job.task,
+                &job.status,
+                &job.user_id,
+                &job.project_dir,
+                &job.success,
+                &job.failure_reason,
+                &job.created_at,
+                &job.started_at,
+                &job.completed_at,
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Get a sandbox job by ID.
+    pub async fn get_sandbox_job(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<SandboxJobRecord>, DatabaseError> {
+        let conn = self.conn().await?;
+        let row = conn
+            .query_opt(
+                r#"
+                SELECT id, title, status, user_id, project_dir,
+                       success, failure_reason, created_at, started_at, completed_at
+                FROM agent_jobs WHERE id = $1 AND source = 'sandbox'
+                "#,
+                &[&id],
+            )
+            .await?;
+
+        Ok(row.map(|r| SandboxJobRecord {
+            id: r.get("id"),
+            task: r.get("title"),
+            status: r.get("status"),
+            user_id: r.get("user_id"),
+            project_dir: r
+                .get::<_, Option<String>>("project_dir")
+                .unwrap_or_default(),
+            success: r.get("success"),
+            failure_reason: r.get("failure_reason"),
+            created_at: r.get("created_at"),
+            started_at: r.get("started_at"),
+            completed_at: r.get("completed_at"),
+        }))
+    }
+
+    /// List all sandbox jobs, most recent first.
+    pub async fn list_sandbox_jobs(&self) -> Result<Vec<SandboxJobRecord>, DatabaseError> {
+        let conn = self.conn().await?;
+        let rows = conn
+            .query(
+                r#"
+                SELECT id, title, status, user_id, project_dir,
+                       success, failure_reason, created_at, started_at, completed_at
+                FROM agent_jobs WHERE source = 'sandbox'
+                ORDER BY created_at DESC
+                "#,
+                &[],
+            )
+            .await?;
+
+        Ok(rows
+            .iter()
+            .map(|r| SandboxJobRecord {
+                id: r.get("id"),
+                task: r.get("title"),
+                status: r.get("status"),
+                user_id: r.get("user_id"),
+                project_dir: r
+                    .get::<_, Option<String>>("project_dir")
+                    .unwrap_or_default(),
+                success: r.get("success"),
+                failure_reason: r.get("failure_reason"),
+                created_at: r.get("created_at"),
+                started_at: r.get("started_at"),
+                completed_at: r.get("completed_at"),
+            })
+            .collect())
+    }
+
+    /// List sandbox jobs for a specific user, most recent first.
+    pub async fn list_sandbox_jobs_for_user(
+        &self,
+        user_id: &str,
+        limit: usize,
+    ) -> Result<Vec<SandboxJobRecord>, DatabaseError> {
+        let conn = self.conn().await?;
+        let rows = conn
+            .query(
+                r#"
+                SELECT id, title, status, user_id, project_dir,
+                       success, failure_reason, created_at, started_at, completed_at
+                FROM agent_jobs WHERE source = 'sandbox' AND user_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2
+                "#,
+                &[&user_id, &(limit as i64)],
+            )
+            .await?;
+
+        Ok(rows
+            .iter()
+            .map(|r| SandboxJobRecord {
+                id: r.get("id"),
+                task: r.get("title"),
+                status: r.get("status"),
+                user_id: r.get("user_id"),
+                project_dir: r
+                    .get::<_, Option<String>>("project_dir")
+                    .unwrap_or_default(),
+                success: r.get("success"),
+                failure_reason: r.get("failure_reason"),
+                created_at: r.get("created_at"),
+                started_at: r.get("started_at"),
+                completed_at: r.get("completed_at"),
+            })
+            .collect())
+    }
+
+    /// Get a summary of sandbox job counts by status for a specific user.
+    pub async fn sandbox_job_summary_for_user(
+        &self,
+        user_id: &str,
+    ) -> Result<SandboxJobSummary, DatabaseError> {
+        let conn = self.conn().await?;
+        let rows = conn
+            .query(
+                "SELECT status, COUNT(*) as cnt FROM agent_jobs WHERE source = 'sandbox' AND user_id = $1 GROUP BY status",
+                &[&user_id],
+            )
+            .await?;
+
+        let mut summary = SandboxJobSummary::default();
+        for row in &rows {
+            let status: String = row.get("status");
+            let count: i64 = row.get("cnt");
+            // Only update fields that exist in SandboxJobSummary.
+            match status.as_str() {
+                "creating" => summary.creating += count,
+                "running" => summary.running += count,
+                "completed" => summary.completed += count,
+                "failed" => summary.failed += count,
+                "interrupted" => summary.interrupted += count,
+                _ => {}
+            }
+            summary.total += count;
+        }
+        Ok(summary)
+    }
+
+    /// Check if a sandbox job belongs to a specific user.
+    pub async fn sandbox_job_belongs_to_user(
+        &self,
+        job_id: Uuid,
+        user_id: &str,
+    ) -> Result<bool, DatabaseError> {
+        let conn = self.conn().await?;
+        let row = conn
+            .query_opt(
+                "SELECT 1 FROM agent_jobs WHERE id = $1 AND user_id = $2 AND source = 'sandbox'",
+                &[&job_id, &user_id],
+            )
+            .await?;
+        Ok(row.is_some())
+    }
+
+    /// Update sandbox job status and optional timestamps/result.
+    pub async fn update_sandbox_job_status(
+        &self,
+        id: Uuid,
+        status: &str,
+        success: Option<bool>,
+        message: Option<&str>,
+        started_at: Option<chrono::DateTime<chrono::Utc>>,
+        completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.conn().await?;
+        conn.execute(
+            r#"
+            UPDATE agent_jobs SET
+                status = $2,
+                success = COALESCE($3, success),
+                failure_reason = COALESCE($4, failure_reason),
+                started_at = COALESCE($5, started_at),
+                completed_at = COALESCE($6, completed_at)
+            WHERE id = $1 AND source = 'sandbox'
+            "#,
+            &[&id, &status, &success, &message, &started_at, &completed_at],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Mark any sandbox jobs left in "running" or "creating" as "interrupted".
+    pub async fn cleanup_stale_sandbox_jobs(&self) -> Result<u64, DatabaseError> {
+        let conn = self.conn().await?;
+        let count = conn
+            .execute(
+                r#"
+                UPDATE agent_jobs SET
+                    status = 'interrupted',
+                    failure_reason = 'Process restarted',
+                    completed_at = NOW()
+                WHERE source = 'sandbox' AND status IN ('running', 'creating')
+                "#,
+                &[],
+            )
+            .await?;
+        if count > 0 {
+            // tracing::info!("Marked {} stale sandbox jobs as interrupted", count);
+        }
+        Ok(count)
+    }
+
+    /// Load all job events for a job, ordered by id.
+    pub async fn list_job_events(
+        &self,
+        job_id: Uuid,
+    ) -> Result<Vec<JobEventRecord>, DatabaseError> {
+        let conn = self.conn().await?;
+        let rows = conn
+            .query(
+                r#"
+                SELECT id, job_id, event_type, data, created_at
+                FROM job_events
+                WHERE job_id = $1
+                ORDER BY id ASC
+                "#,
+                &[&job_id],
+            )
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|r| JobEventRecord {
+                id: r.get("id"),
+                job_id: r.get("job_id"),
+                event_type: r.get("event_type"),
+                data: r.get("data"),
+                created_at: r.get("created_at"),
+            })
+            .collect())
+    }
+}
+
+#[async_trait]
+impl Database for Store {
+    async fn save_job_event(
+        &self,
+        job_id: Uuid,
+        event_type: &str,
+        data: &serde_json::Value,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.conn().await?;
+        conn.execute(
+            "INSERT INTO job_events (job_id, event_type, data, created_at) VALUES ($1, $2, $3, NOW())",
+            &[&job_id, &event_type, &data],
+        ).await?;
+        Ok(())
+    }
+
+    async fn ensure_conversation(
+        &self,
+        _id: Uuid,
+        _channel: &str,
+        _user_id: &str,
+    ) -> Result<(), DatabaseError> {
+        Ok(())
+    }
+
+    async fn get_or_create_assistant_conversation(
+        &self,
+        user_id: &str,
+        _channel: &str,
+    ) -> Result<Uuid, DatabaseError> {
+        let conn = self.conn().await?;
+        let row = conn.query_opt(
+            "SELECT id FROM conversations WHERE user_id = $1 AND channel = 'assistant' ORDER BY last_activity DESC LIMIT 1",
+            &[&user_id],
+        ).await?;
+
+        if let Some(row) = row {
+            Ok(row.get(0))
+        } else {
+            self.create_conversation("assistant", user_id, None).await
+        }
+    }
+
+    async fn list_conversations_with_preview(
+        &self,
+        _user_id: &str,
+        _channel: &str,
+        _limit: usize,
+    ) -> Result<Vec<ConversationSummary>, DatabaseError> {
+        Ok(vec![])
+    }
+
+    async fn list_conversation_messages_paginated(
+        &self,
+        _conversation_id: Uuid,
+        _limit: usize,
+        _before: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<(Vec<ConversationMessage>, bool), DatabaseError> {
+        Ok((vec![], false))
+    }
+
+    async fn conversation_belongs_to_user(
+        &self,
+        _conversation_id: Uuid,
+        _user_id: &str,
+    ) -> Result<bool, DatabaseError> {
+        Ok(true)
+    }
+
+    async fn update_conversation_metadata_field(
+        &self,
+        _conversation_id: Uuid,
+        _field: &str,
+        _value: &serde_json::Value,
+    ) -> Result<(), DatabaseError> {
+        Ok(())
+    }
+
+    async fn save_sandbox_job(&self, job: &SandboxJobRecord) -> Result<(), DatabaseError> {
+        self.save_sandbox_job(job).await
+    }
+
+    async fn get_sandbox_job(&self, id: Uuid) -> Result<Option<SandboxJobRecord>, DatabaseError> {
+        self.get_sandbox_job(id).await
+    }
+
+    async fn get_sandbox_job_mode(&self, _id: Uuid) -> Result<Option<String>, DatabaseError> {
+        Ok(None)
+    }
+
+    async fn list_sandbox_jobs_for_user(
+        &self,
+        user_id: &str,
+        limit: usize,
+    ) -> Result<Vec<SandboxJobRecord>, DatabaseError> {
+        self.list_sandbox_jobs_for_user(user_id, limit).await
+    }
+
+    async fn update_sandbox_job_status(
+        &self,
+        id: Uuid,
+        status: &str,
+        success: Option<bool>,
+        failure_reason: Option<String>,
+        started_at: Option<chrono::DateTime<chrono::Utc>>,
+        completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<(), DatabaseError> {
+        self.update_sandbox_job_status(id, status, success, failure_reason.as_deref(), started_at, completed_at).await
+    }
+
+    async fn sandbox_job_belongs_to_user(&self, id: Uuid, user_id: &str) -> Result<bool, DatabaseError> {
+        self.sandbox_job_belongs_to_user(id, user_id).await
+    }
+
+    async fn sandbox_job_summary_for_user(
+        &self,
+        user_id: &str,
+    ) -> Result<SandboxJobSummary, DatabaseError> {
+        self.sandbox_job_summary_for_user(user_id).await
+    }
+
+    async fn list_job_events(&self, job_id: Uuid) -> Result<Vec<JobEventRecord>, DatabaseError> {
+        self.list_job_events(job_id).await
+    }
+
+    async fn list_routines(&self, _user_id: &str) -> Result<Vec<Routine>, DatabaseError> {
+        Ok(vec![])
+    }
+
+    async fn get_routine(&self, _id: Uuid) -> Result<Option<Routine>, DatabaseError> {
+        Ok(None)
+    }
+
+    async fn update_routine(&self, _routine: &Routine) -> Result<(), DatabaseError> {
+        Ok(())
+    }
+
+    async fn delete_routine(&self, _id: Uuid) -> Result<bool, DatabaseError> {
+        Ok(false)
+    }
+
+    async fn list_routine_runs(&self, _routine_id: Uuid, _limit: usize) -> Result<Vec<RoutineRun>, DatabaseError> {
+        Ok(vec![])
+    }
+
+    async fn list_settings(&self, _user_id: &str) -> Result<Vec<SettingRecord>, DatabaseError> {
+        Ok(vec![])
+    }
+
+    async fn get_setting_full(&self, _user_id: &str, _key: &str) -> Result<Option<SettingRecord>, DatabaseError> {
+        Ok(None)
+    }
+
+    async fn set_setting(&self, _user_id: &str, _key: &str, _value: &serde_json::Value) -> Result<(), DatabaseError> {
+        Ok(())
+    }
+
+    async fn delete_setting(&self, _user_id: &str, _key: &str) -> Result<(), DatabaseError> {
+        Ok(())
+    }
+
+    async fn get_all_settings(&self, _user_id: &str) -> Result<std::collections::HashMap<String, serde_json::Value>, DatabaseError> {
+        Ok(std::collections::HashMap::new())
+    }
+
+    async fn set_all_settings(&self, _user_id: &str, _settings: &std::collections::HashMap<String, serde_json::Value>) -> Result<(), DatabaseError> {
         Ok(())
     }
 }

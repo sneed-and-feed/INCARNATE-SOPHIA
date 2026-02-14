@@ -22,6 +22,7 @@ pub struct Config {
     pub builder: BuilderModeConfig,
     pub heartbeat: HeartbeatConfig,
     pub sandbox: SandboxModeConfig,
+    pub claude_code: ClaudeCodeConfig,
 }
 
 impl Config {
@@ -43,6 +44,7 @@ impl Config {
             builder: BuilderModeConfig::from_env()?,
             heartbeat: HeartbeatConfig::from_env()?,
             sandbox: SandboxModeConfig::from_env()?,
+            claude_code: ClaudeCodeConfig::from_env()?,
         })
     }
 }
@@ -1077,6 +1079,87 @@ impl SandboxModeConfig {
             auto_pull_image: self.auto_pull_image,
             proxy_port: 0, // Auto-assign
         }
+    }
+}
+
+/// Claude Code sandbox configuration.
+#[derive(Debug, Clone)]
+pub struct ClaudeCodeConfig {
+    /// Whether Claude Code sandbox mode is available.
+    pub enabled: bool,
+    /// Host directory containing Claude auth session (mounted read-only).
+    pub config_dir: std::path::PathBuf,
+    /// Claude model to use (e.g. "sonnet", "opus").
+    pub model: String,
+    /// Maximum agentic turns before stopping.
+    pub max_turns: u32,
+    /// Memory limit in MB for Claude Code containers (heavier than workers).
+    pub memory_limit_mb: u64,
+    /// Allowed tool patterns for Claude Code permission settings.
+    pub allowed_tools: Vec<String>,
+}
+
+/// Default allowed tools for Claude Code inside containers.
+fn default_claude_code_allowed_tools() -> Vec<String> {
+    [
+        "Bash(*)",
+        "Read",
+        "Edit(*)",
+        "Glob",
+        "Grep",
+        "WebFetch(*)",
+        "Task(*)",
+    ]
+    .into_iter()
+    .map(String::from)
+    .collect()
+}
+
+impl Default for ClaudeCodeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            config_dir: dirs::home_dir()
+                .unwrap_or_else(|| std::path::PathBuf::from("."))
+                .join(".claude"),
+            model: "sonnet".to_string(),
+            max_turns: 50,
+            memory_limit_mb: 4096,
+            allowed_tools: default_claude_code_allowed_tools(),
+        }
+    }
+}
+
+impl ClaudeCodeConfig {
+    pub fn from_env() -> Result<Self, ConfigError> {
+        let defaults = Self::default();
+        Ok(Self {
+            enabled: optional_env("CLAUDE_CODE_ENABLED")?
+                .map(|s| s.parse())
+                .transpose()
+                .map_err(|e| ConfigError::InvalidValue {
+                    key: "CLAUDE_CODE_ENABLED".to_string(),
+                    message: format!("must be 'true' or 'false': {e}"),
+                })?
+                .unwrap_or(defaults.enabled),
+            config_dir: optional_env("CLAUDE_CONFIG_DIR")?
+                .map(std::path::PathBuf::from)
+                .unwrap_or(defaults.config_dir),
+            model: optional_env("CLAUDE_CODE_MODEL")?.unwrap_or(defaults.model),
+            max_turns: parse_optional_env("CLAUDE_CODE_MAX_TURNS", defaults.max_turns)?,
+            memory_limit_mb: parse_optional_env(
+                "CLAUDE_CODE_MEMORY_LIMIT_MB",
+                defaults.memory_limit_mb,
+            )?,
+            allowed_tools: optional_env("CLAUDE_CODE_ALLOWED_TOOLS")?
+                .map(|s| {
+                    s.split(',')
+                        .map(|t| t.trim().to_string())
+                        .filter(|t| !t.is_empty())
+                        .collect()
+                })
+                .unwrap_or(defaults.allowed_tools),
+        })
     }
 }
 

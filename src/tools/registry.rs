@@ -6,8 +6,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::context::ContextManager;
+use crate::db::Database;
 use crate::extensions::ExtensionManager;
 use crate::llm::{LlmProvider, ToolDefinition};
+use crate::orchestrator::ContainerJobManager;
 use crate::safety::SafetyLayer;
 use crate::tools::builder::{BuildSoftwareTool, BuilderConfig, LlmSoftwareBuilder};
 use crate::tools::builtin::{
@@ -154,8 +156,18 @@ impl ToolRegistry {
     ///
     /// Job tools allow the LLM to create, list, check status, and cancel jobs.
     /// These enable natural language job management without hardcoded intent parsing.
-    pub fn register_job_tools(&self, context_manager: Arc<ContextManager>) {
-        self.register_sync(Arc::new(CreateJobTool::new(Arc::clone(&context_manager))));
+    pub fn register_job_tools(
+        &self,
+        context_manager: Arc<ContextManager>,
+        container_job_manager: Option<Arc<ContainerJobManager>>,
+        db: Option<Arc<dyn Database>>,
+    ) {
+        let mut create_job = CreateJobTool::new(Arc::clone(&context_manager));
+        if let Some(jm) = container_job_manager {
+            create_job = create_job.with_sandbox(jm, db);
+        }
+
+        self.register_sync(Arc::new(create_job));
         self.register_sync(Arc::new(ListJobsTool::new(Arc::clone(&context_manager))));
         self.register_sync(Arc::new(JobStatusTool::new(Arc::clone(&context_manager))));
         self.register_sync(Arc::new(CancelJobTool::new(context_manager)));
