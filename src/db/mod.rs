@@ -57,6 +57,12 @@ pub trait Database: Send + Sync {
         value: &serde_json::Value,
     ) -> Result<(), DatabaseError>;
 
+    async fn delete_conversation(
+        &self,
+        id: Uuid,
+        user_id: &str,
+    ) -> Result<bool, DatabaseError>;
+
     // --- Sandbox Jobs ---
 
     async fn save_sandbox_job(&self, job: &SandboxJobRecord) -> Result<(), DatabaseError>;

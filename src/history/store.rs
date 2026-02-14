@@ -894,10 +894,15 @@ impl Database for Store {
 
     async fn ensure_conversation(
         &self,
-        _id: Uuid,
-        _channel: &str,
-        _user_id: &str,
+        id: Uuid,
+        channel: &str,
+        user_id: &str,
     ) -> Result<(), DatabaseError> {
+        let conn = self.conn().await?;
+        conn.execute(
+            "INSERT INTO conversations (id, channel, user_id) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+            &[&id, &channel, &user_id],
+        ).await?;
         Ok(())
     }
 
@@ -921,37 +926,112 @@ impl Database for Store {
 
     async fn list_conversations_with_preview(
         &self,
-        _user_id: &str,
-        _channel: &str,
-        _limit: usize,
+        user_id: &str,
+        channel: &str,
+        limit: usize,
     ) -> Result<Vec<ConversationSummary>, DatabaseError> {
-        Ok(vec![])
+        let conn = self.conn().await?;
+        let rows = conn.query(
+            r#"
+            SELECT 
+                c.id, 
+                c.metadata->>'title' as title,
+                (SELECT COUNT(*)::int4 FROM conversation_messages WHERE conversation_id = c.id) as message_count,
+                c.started_at,
+                c.last_activity,
+                c.metadata->>'thread_type' as thread_type
+            FROM conversations c
+            WHERE c.user_id = $1 AND c.channel = $2
+            ORDER BY c.last_activity DESC
+            LIMIT $3
+            "#,
+            &[&user_id, &channel, &(limit as i64)],
+        ).await?;
+
+        Ok(rows.iter().map(|row| ConversationSummary {
+            id: row.get("id"),
+            title: row.get("title"),
+            message_count: row.get("message_count"),
+            started_at: row.get("started_at"),
+            last_activity: row.get("last_activity"),
+            thread_type: row.get("thread_type"),
+        }).collect())
     }
 
     async fn list_conversation_messages_paginated(
         &self,
-        _conversation_id: Uuid,
-        _limit: usize,
-        _before: Option<chrono::DateTime<chrono::Utc>>,
+        conversation_id: Uuid,
+        limit: usize,
+        before: Option<chrono::DateTime<chrono::Utc>>,
     ) -> Result<(Vec<ConversationMessage>, bool), DatabaseError> {
-        Ok((vec![], false))
+        let conn = self.conn().await?;
+        
+        let (rows, has_more) = if let Some(before_ts) = before {
+            let rows = conn.query(
+                "SELECT id, role, content, created_at FROM conversation_messages WHERE conversation_id = $1 AND created_at < $2 ORDER BY created_at DESC LIMIT $3",
+                &[&conversation_id, &before_ts, &(limit as i64 + 1)],
+            ).await?;
+            let has_more = rows.len() > limit;
+            let rows = if has_more { rows[..limit].to_vec() } else { rows };
+            (rows, has_more)
+        } else {
+            let rows = conn.query(
+                "SELECT id, role, content, created_at FROM conversation_messages WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT $2",
+                &[&conversation_id, &(limit as i64 + 1)],
+            ).await?;
+            let has_more = rows.len() > limit;
+            let rows = if has_more { rows[..limit].to_vec() } else { rows };
+            (rows, has_more)
+        };
+
+        let messages = rows.iter().rev().map(|row| ConversationMessage {
+            id: row.get("id"),
+            role: row.get("role"),
+            content: row.get("content"),
+            created_at: row.get("created_at"),
+        }).collect();
+
+        Ok((messages, has_more))
     }
 
     async fn conversation_belongs_to_user(
         &self,
-        _conversation_id: Uuid,
-        _user_id: &str,
+        conversation_id: Uuid,
+        user_id: &str,
     ) -> Result<bool, DatabaseError> {
-        Ok(true)
+        let conn = self.conn().await?;
+        let row = conn.query_opt(
+            "SELECT 1 FROM conversations WHERE id = $1 AND user_id = $2",
+            &[&conversation_id, &user_id],
+        ).await?;
+        Ok(row.is_some())
     }
 
     async fn update_conversation_metadata_field(
         &self,
-        _conversation_id: Uuid,
-        _field: &str,
-        _value: &serde_json::Value,
+        conversation_id: Uuid,
+        field: &str,
+        value: &serde_json::Value,
     ) -> Result<(), DatabaseError> {
+        let conn = self.conn().await?;
+        conn.execute(
+            &format!("UPDATE conversations SET metadata = jsonb_set(metadata, '{{ {} }}', $1) WHERE id = $2", field),
+            &[&value, &conversation_id],
+        ).await?;
         Ok(())
+    }
+
+    async fn delete_conversation(
+        &self,
+        id: Uuid,
+        user_id: &str,
+    ) -> Result<bool, DatabaseError> {
+        let conn = self.conn().await?;
+        let result = conn.execute(
+            "DELETE FROM conversations WHERE id = $1 AND user_id = $2",
+            &[&id, &user_id],
+        ).await?;
+        Ok(result > 0)
     }
 
     async fn save_sandbox_job(&self, job: &SandboxJobRecord) -> Result<(), DatabaseError> {

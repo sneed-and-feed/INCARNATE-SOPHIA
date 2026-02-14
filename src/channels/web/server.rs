@@ -181,6 +181,7 @@ pub async fn start_server(
         .route("/api/chat/history", get(chat_history_handler))
         .route("/api/chat/threads", get(chat_threads_handler))
         .route("/api/chat/thread/new", post(chat_new_thread_handler))
+        .route("/api/chat/thread/delete", post(chat_delete_thread_handler))
         // Memory
         .route("/api/memory/tree", get(memory_tree_handler))
         .route("/api/memory/list", get(memory_list_handler))
@@ -890,6 +891,32 @@ async fn chat_new_thread_handler(
     }
 
     Ok(Json(info))
+}
+
+#[derive(Deserialize)]
+struct DeleteThreadRequest {
+    thread_id: Uuid,
+}
+
+async fn chat_delete_thread_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(req): Json<DeleteThreadRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let store = state.store.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Database not available".to_string(),
+    ))?;
+
+    let deleted = store
+        .delete_conversation(req.thread_id, &state.user_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    if deleted {
+        Ok(StatusCode::OK)
+    } else {
+        Err((StatusCode::NOT_FOUND, "Thread not found".to_string()))
+    }
 }
 
 // --- Memory handlers ---

@@ -1044,29 +1044,6 @@ impl Agent {
                                         &message.metadata,
                                     )
                                     .await;
-
-                                // If this was create_job, also emit a JobStarted event for the web client
-                                if tc.name == "create_job" {
-                                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(output) {
-                                        if let (Some(job_id), Some(browse_url)) = (
-                                            parsed.get("job_id").and_then(|v| v.as_str()),
-                                            parsed.get("browse_url").and_then(|v| v.as_str()),
-                                        ) {
-                                            let title = tc.arguments.get("task")
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("Sandboxed Job");
-                                            let _ = self.channels.send_status(
-                                                &message.channel,
-                                                StatusUpdate::JobStarted {
-                                                    job_id: job_id.to_string(),
-                                                    title: title.to_string(),
-                                                    browse_url: browse_url.to_string(),
-                                                },
-                                                &message.metadata,
-                                            ).await;
-                                        }
-                                    }
-                                }
                             }
                         }
 
@@ -1547,29 +1524,6 @@ impl Agent {
                             &message.metadata,
                         )
                         .await;
-
-                    // If this was create_job, also emit a JobStarted event for the web client
-                    if pending.tool_name == "create_job" {
-                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(output) {
-                            if let (Some(job_id), Some(browse_url)) = (
-                                parsed.get("job_id").and_then(|v| v.as_str()),
-                                parsed.get("browse_url").and_then(|v| v.as_str()),
-                            ) {
-                                let title = pending.parameters.get("task")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("Sandboxed Job");
-                                let _ = self.channels.send_status(
-                                    &message.channel,
-                                    StatusUpdate::JobStarted {
-                                        job_id: job_id.to_string(),
-                                        title: title.to_string(),
-                                        browse_url: browse_url.to_string(),
-                                    },
-                                    &message.metadata,
-                                ).await;
-                            }
-                        }
-                    }
                 }
             }
 
