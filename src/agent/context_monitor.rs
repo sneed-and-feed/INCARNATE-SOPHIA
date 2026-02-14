@@ -178,7 +178,15 @@ pub fn scrub_context(text: &str, level: ScrubLevel) -> String {
 
     cleaned = re.replace_all(&cleaned, "").to_string();
     
-    // 2. Remove glitched diacritics (spectral trash) added by GlyphWave
+    // 2. Remove glitched strikethrough diacritics (weird visual clutter)
+    // Removed at all levels of scrubbing for better readability.
+    cleaned = cleaned.replace('\u{0334}', ""); // Combining Tilde Overlay
+    cleaned = cleaned.replace('\u{0335}', ""); // Combining Short Stroke Overlay
+    cleaned = cleaned.replace('\u{0336}', ""); // Combining Long Stroke Overlay
+    cleaned = cleaned.replace('\u{0337}', ""); // Combining Short Solidus Overlay
+    cleaned = cleaned.replace('\u{0338}', ""); // Combining Long Solidus Overlay
+
+    // 3. Remove glitched shimmer diacritics (spectral trash) added by GlyphWave
     // ONLY removed in Clearance level to maximize token savings.
     if level == ScrubLevel::Clearance {
         cleaned = cleaned.replace('\u{035C}', "");
