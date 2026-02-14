@@ -183,13 +183,23 @@ impl LlmProvider for NearAiChatProvider {
                     reason: "No choices in response".to_string(),
                 })?;
 
-        let content = choice.message.content.unwrap_or_default();
-        let finish_reason = match choice.finish_reason.as_deref() {
-            Some("stop") => FinishReason::Stop,
-            Some("length") => FinishReason::Length,
-            Some("tool_calls") => FinishReason::ToolUse,
-            Some("content_filter") => FinishReason::ContentFilter,
-            _ => FinishReason::Unknown,
+        let (content, tool_calls_raw) = if let Some(msg) = choice.message {
+            (msg.content.unwrap_or_default(), msg.tool_calls.unwrap_or_default())
+        } else {
+            ("[Content Blocked by Safety Filter]".to_string(), Vec::new())
+        };
+
+        let fr_str = choice.finish_reason.as_deref().unwrap_or("");
+        let finish_reason = if fr_str.contains("stop") {
+            FinishReason::Stop
+        } else if fr_str.contains("length") {
+            FinishReason::Length
+        } else if fr_str.contains("tool_calls") || fr_str.contains("function_call") || !tool_calls_raw.is_empty() {
+            FinishReason::ToolUse
+        } else if fr_str.contains("content_filter") {
+            FinishReason::ContentFilter
+        } else {
+            FinishReason::Unknown
         };
 
         Ok(CompletionResponse {
@@ -242,11 +252,13 @@ impl LlmProvider for NearAiChatProvider {
                     reason: "No choices in response".to_string(),
                 })?;
 
-        let content = choice.message.content;
-        let tool_calls: Vec<ToolCall> = choice
-            .message
-            .tool_calls
-            .unwrap_or_default()
+        let (content, tool_calls_raw) = if let Some(msg) = choice.message {
+            (msg.content, msg.tool_calls.unwrap_or_default())
+        } else {
+            (Some("[Content Blocked by Safety Filter]".to_string()), Vec::new())
+        };
+
+        let tool_calls: Vec<ToolCall> = tool_calls_raw
             .into_iter()
             .map(|tc| {
                 let arguments = serde_json::from_str(&tc.function.arguments)
@@ -260,18 +272,17 @@ impl LlmProvider for NearAiChatProvider {
             })
             .collect();
 
-        let finish_reason = match choice.finish_reason.as_deref() {
-            Some("stop") => FinishReason::Stop,
-            Some("length") => FinishReason::Length,
-            Some("tool_calls") => FinishReason::ToolUse,
-            Some("content_filter") => FinishReason::ContentFilter,
-            _ => {
-                if !tool_calls.is_empty() {
-                    FinishReason::ToolUse
-                } else {
-                    FinishReason::Unknown
-                }
-            }
+        let fr_str = choice.finish_reason.as_deref().unwrap_or("");
+        let finish_reason = if fr_str.contains("stop") {
+            FinishReason::Stop
+        } else if fr_str.contains("length") {
+            FinishReason::Length
+        } else if fr_str.contains("tool_calls") || fr_str.contains("function_call") || !tool_calls.is_empty() {
+            FinishReason::ToolUse
+        } else if fr_str.contains("content_filter") {
+            FinishReason::ContentFilter
+        } else {
+            FinishReason::Unknown
         };
 
         Ok(ToolCompletionResponse {
@@ -384,7 +395,7 @@ struct ChatCompletionResponse {
 
 #[derive(Debug, Deserialize)]
 struct ChatCompletionChoice {
-    message: ChatCompletionResponseMessage,
+    message: Option<ChatCompletionResponseMessage>,
     finish_reason: Option<String>,
 }
 

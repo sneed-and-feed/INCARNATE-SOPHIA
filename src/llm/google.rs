@@ -169,18 +169,36 @@ impl LlmProvider for GoogleGeminiProvider {
                     reason: "No choices in response".to_string(),
                 })?;
 
-        let content = choice.message.content.unwrap_or_default();
-        let finish_reason = match choice.finish_reason.as_deref() {
-            Some("stop") => FinishReason::Stop,
-            Some("length") => FinishReason::Length,
-            Some("tool_calls") => FinishReason::ToolUse,
-            Some("content_filter") => FinishReason::ContentFilter,
-            _ => FinishReason::Unknown,
+        let (content, thought, tool_calls) = if let Some(msg) = choice.message {
+            (
+                msg.content.unwrap_or_default(),
+                msg.thought,
+                msg.tool_calls.unwrap_or_default(),
+            )
+        } else {
+            (
+                "[Content Blocked by Safety Filter]".to_string(),
+                None,
+                Vec::new(),
+            )
+        };
+
+        let fr_str = choice.finish_reason.as_deref().unwrap_or("");
+        let finish_reason = if fr_str.contains("stop") {
+            FinishReason::Stop
+        } else if fr_str.contains("length") {
+            FinishReason::Length
+        } else if fr_str.contains("tool_calls") || fr_str.contains("function_call") || !tool_calls.is_empty() {
+            FinishReason::ToolUse
+        } else if fr_str.contains("content_filter") {
+            FinishReason::ContentFilter
+        } else {
+            FinishReason::Unknown
         };
 
         Ok(CompletionResponse {
             content,
-            thought: choice.message.thought,
+            thought,
             finish_reason,
             input_tokens: response.usage.prompt_tokens,
             output_tokens: response.usage.completion_tokens,
@@ -228,11 +246,13 @@ impl LlmProvider for GoogleGeminiProvider {
                     reason: "No choices in response".to_string(),
                 })?;
 
-        let content = choice.message.content;
-        let tool_calls: Vec<ToolCall> = choice
-            .message
-            .tool_calls
-            .unwrap_or_default()
+        let (content, thought, tool_calls_raw) = if let Some(msg) = choice.message {
+            (msg.content, msg.thought, msg.tool_calls.unwrap_or_default())
+        } else {
+            (Some("[Content Blocked by Safety Filter]".to_string()), None, Vec::new())
+        };
+
+        let tool_calls: Vec<ToolCall> = tool_calls_raw
             .into_iter()
             .map(|tc| {
                 let arguments = serde_json::from_str(&tc.function.arguments)
@@ -246,24 +266,23 @@ impl LlmProvider for GoogleGeminiProvider {
             })
             .collect();
 
-        let finish_reason = match choice.finish_reason.as_deref() {
-            Some("stop") => FinishReason::Stop,
-            Some("length") => FinishReason::Length,
-            Some("tool_calls") => FinishReason::ToolUse,
-            Some("content_filter") => FinishReason::ContentFilter,
-            _ => {
-                if !tool_calls.is_empty() {
-                    FinishReason::ToolUse
-                } else {
-                    FinishReason::Unknown
-                }
-            }
+        let fr_str = choice.finish_reason.as_deref().unwrap_or("");
+        let finish_reason = if fr_str.contains("stop") {
+            FinishReason::Stop
+        } else if fr_str.contains("length") {
+            FinishReason::Length
+        } else if fr_str.contains("tool_calls") || fr_str.contains("function_call") || !tool_calls.is_empty() {
+            FinishReason::ToolUse
+        } else if fr_str.contains("content_filter") {
+            FinishReason::ContentFilter
+        } else {
+            FinishReason::Unknown
         };
 
         Ok(ToolCompletionResponse {
             content,
             tool_calls,
-            thought: choice.message.thought,
+            thought,
             finish_reason,
             input_tokens: response.usage.prompt_tokens,
             output_tokens: response.usage.completion_tokens,
@@ -379,7 +398,7 @@ struct ChatCompletionResponse {
 
 #[derive(Debug, Deserialize)]
 struct ChatCompletionChoice {
-    message: ChatCompletionResponseMessage,
+    message: Option<ChatCompletionResponseMessage>,
     finish_reason: Option<String>,
 }
 
