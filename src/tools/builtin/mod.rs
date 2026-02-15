@@ -13,6 +13,7 @@ mod memory;
 mod restaurant;
 mod shell;
 mod search;
+mod sneed;
 mod taskrabbit;
 mod time;
 
@@ -31,5 +32,6 @@ pub use memory::{MemoryReadTool, MemorySearchTool, MemoryTreeTool, MemoryWriteTo
 pub use restaurant::RestaurantTool;
 pub use shell::ShellTool;
 pub use search::SearchTool;
+pub use sneed::SneedTool;
 pub use taskrabbit::TaskRabbitTool;
 pub use time::TimeTool;

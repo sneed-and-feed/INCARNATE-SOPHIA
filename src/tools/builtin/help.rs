@@ -58,6 +58,7 @@ impl Tool for HelpTool {
 /ritual           :: [SCRIBE] Force-trigger the Class 7 Constitution Authorship.
 /optimize [query] :: [ASOE] Calculate Expected Utility (U) for a decision path.
 /ghostmesh        :: [SPATIAL] Visualize 7x7x7 Volumetric Grid coherence.
+/sneed [query]     :: [ASOE] Perform a retrocausal logic audit on the specified intent.
 /be [persona]     :: [MOLT] Dynamically assume a recursive roleplay identity.
 /callme [name]    :: [ID] Set your preferred name for Sovereign Merging.
 /mass [value]     :: [LOOM] Override engagement physics (1.0=Business, 20.0=Trauma).

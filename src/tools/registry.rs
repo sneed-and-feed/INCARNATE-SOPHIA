@@ -15,7 +15,7 @@ use crate::tools::builder::{BuildSoftwareTool, BuilderConfig, LlmSoftwareBuilder
 use crate::tools::builtin::{
     ApplyPatchTool, CancelJobTool, CreateJobTool, EchoTool, HelpTool, HttpTool, JobStatusTool, JsonTool,
     ListDirTool, ListJobsTool, MemoryReadTool, MemorySearchTool, MemoryTreeTool, MemoryWriteTool,
-    ReadFileTool, SearchTool, ShellTool, TimeTool, ToolActivateTool, ToolAuthTool, ToolInstallTool,
+    ReadFileTool, SearchTool, ShellTool, SneedTool, TimeTool, ToolActivateTool, ToolAuthTool, ToolInstallTool,
     ToolListTool, ToolRemoveTool, ToolSearchTool, WriteFileTool,
 };
 use crate::tools::tool::Tool;
@@ -120,6 +120,7 @@ impl ToolRegistry {
         self.register_sync(Arc::new(HelpTool::new()));
         self.register_sync(Arc::new(HttpTool::new()));
         self.register_sync(Arc::new(SearchTool::new()));
+        self.register_sync(Arc::new(SneedTool::new()));
 
         tracing::info!("Registered {} built-in tools", self.count());
     }
