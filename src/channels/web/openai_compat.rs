@@ -945,6 +945,7 @@ mod tests {
             id: "call_abc".to_string(),
             name: "search".to_string(),
             arguments: serde_json::json!({"query": "rust"}),
+            thought_signature: None,
         }];
 
         let converted = convert_tool_calls_to_openai(&calls);

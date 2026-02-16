@@ -43,6 +43,7 @@ use ironclaw::{
 };
 
 #[tokio::main]
+// Force rebuild for thread persistence fix
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 

@@ -104,6 +104,15 @@ impl Session {
             false
         }
     }
+
+    /// Ensure a thread exists with the given ID.
+    pub fn ensure_thread(&mut self, thread_id: Uuid) -> &mut Thread {
+        if !self.threads.contains_key(&thread_id) {
+            let thread = Thread::new_with_id(thread_id, self.id);
+            self.threads.insert(thread_id, thread);
+        }
+        self.threads.get_mut(&thread_id).expect("just inserted or existed")
+    }
 }
 
 /// State of a thread.
@@ -178,9 +187,14 @@ pub struct Thread {
 impl Thread {
     /// Create a new thread.
     pub fn new(session_id: Uuid) -> Self {
+        Self::new_with_id(Uuid::new_v4(), session_id)
+    }
+
+    /// Create a new thread with a specific ID.
+    pub fn new_with_id(id: Uuid, session_id: Uuid) -> Self {
         let now = Utc::now();
         Self {
-            id: Uuid::new_v4(),
+            id,
             session_id,
             state: ThreadState::Idle,
             turns: Vec::new(),

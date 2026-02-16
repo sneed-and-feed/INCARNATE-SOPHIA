@@ -88,6 +88,23 @@ impl SessionManager {
             }
         }
 
+        // Special case: if external_thread_id is a valid UUID, trust it and ensure
+        // it exists in the session. This allows the web gateway (which uses internal
+        // IDs as external IDs) to reuse threads from other channels or survive restarts.
+        if let Some(id_str) = external_thread_id {
+            if let Ok(target_id) = Uuid::parse_str(id_str) {
+                let mut sess = session.lock().await;
+                // ensure_thread will return existing or create new with this exact ID
+                let thread_id = sess.ensure_thread(target_id).id;
+                drop(sess);
+
+                // Store mapping for this key
+                let mut thread_map = self.thread_map.write().await;
+                thread_map.insert(key, thread_id);
+                return (Arc::clone(&session), thread_id);
+            }
+        }
+
         // Create new thread (always create a new one for a new key)
         let thread_id = {
             let mut sess = session.lock().await;

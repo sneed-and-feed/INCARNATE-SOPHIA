@@ -420,17 +420,12 @@ function loadThreads() {
       list.appendChild(item);
     }
 
-    if (!currentThreadId && threads.length > 0) {
-      // Auto-select most recent thread if not assistant
-      if (threads[0].id !== assistantThreadId) {
-        switchThread(threads[0].id);
-      } else if (threads.length > 1) {
-        switchThread(threads[1].id);
-      } else {
+    if (!currentThreadId) {
+      if (assistantThreadId) {
         switchToAssistant();
+      } else if (threads.length > 0) {
+        switchThread(threads[0].id);
       }
-    } else if (!currentThreadId && assistantThreadId) {
-      switchToAssistant();
     }
   }).catch(() => { });
 }

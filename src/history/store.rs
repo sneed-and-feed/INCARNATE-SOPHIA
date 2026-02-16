@@ -948,6 +948,14 @@ impl Database for Store {
         limit: usize,
     ) -> Result<Vec<ConversationSummary>, DatabaseError> {
         let conn = self.conn().await?;
+        
+        // Unified view: if listing for 'gateway', also include 'repl' and 'assistant'
+        let channels = if channel == "gateway" || channel == "repl" {
+            vec!["gateway", "repl", "assistant"]
+        } else {
+            vec![channel]
+        };
+
         let rows = conn.query(
             r#"
             SELECT 
@@ -958,11 +966,11 @@ impl Database for Store {
                 c.last_activity,
                 c.metadata->>'thread_type' as thread_type
             FROM conversations c
-            WHERE c.user_id = $1 AND c.channel = $2
+            WHERE c.user_id = $1 AND c.channel = ANY($2)
             ORDER BY c.last_activity DESC
             LIMIT $3
             "#,
-            &[&user_id, &channel, &(limit as i64)],
+            &[&user_id, &channels, &(limit as i64)],
         ).await?;
 
         Ok(rows.iter().map(|row| ConversationSummary {

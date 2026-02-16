@@ -628,17 +628,25 @@ async fn chat_history_handler(
     // Verify the thread belongs to the authenticated user before returning any data.
     // In-memory threads are already scoped by user via session_manager, but DB
     // lookups could expose another user's conversation if the UUID is guessed.
-    if query.thread_id.is_some()
-        && let Some(ref store) = state.store
-    {
-        let owned = store
-            .conversation_belongs_to_user(thread_id, &state.user_id)
-            .await
-            .unwrap_or(false);
-        if !owned && !sess.threads.contains_key(&thread_id) {
-            return Err((StatusCode::NOT_FOUND, "Thread not found".to_string()));
+        // Check ownership
+        if let Some(ref store) = state.store {
+            tracing::debug!("Checking history ownership for thread {} (user: {})", thread_id, state.user_id);
+            match store
+                .conversation_belongs_to_user(thread_id, &state.user_id)
+                .await {
+                    Ok(true) => {
+                        tracing::debug!("Ownership confirmed for thread {}", thread_id);
+                    }
+                    Ok(false) => {
+                        tracing::warn!("Ownership check failed for thread {} (user: {})", thread_id, state.user_id);
+                        return Err((StatusCode::FORBIDDEN, "Forbidden".to_string()));
+                    }
+                    Err(e) => {
+                        tracing::error!("Database error checking ownership: {}", e);
+                        return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+                    }
+                }
         }
-    }
 
     // For paginated requests (before cursor set), always go to DB
     if before_cursor.is_some()
@@ -659,11 +667,9 @@ async fn chat_history_handler(
         }));
     }
 
-    // Try in-memory first (freshest data for active threads)
-    if let Some(thread) = sess.threads.get(&thread_id)
-        && !thread.turns.is_empty()
-    {
-        let turns: Vec<TurnInfo> = thread
+    // Try in-memory first to see what's live
+    let in_memory_turns = if let Some(thread) = sess.threads.get(&thread_id) {
+        thread
             .turns
             .iter()
             .map(|t| TurnInfo {
@@ -683,39 +689,75 @@ async fn chat_history_handler(
                     })
                     .collect(),
             })
-            .collect();
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
 
-        return Ok(Json(HistoryResponse {
-            thread_id,
-            turns,
-            has_more: false,
-            oldest_timestamp: None,
-        }));
-    }
-
-    // Fall back to DB for historical threads not in memory (paginated)
+    // Fall back to DB for historical threads or to prepend prior history
     if let Some(ref store) = state.store {
-        let (messages, has_more) = store
+        let (db_messages, has_more) = store
             .list_conversation_messages_paginated(thread_id, limit, None)
             .await
             .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
-        if !messages.is_empty() {
-            let oldest_timestamp = messages.first().map(|m| m.created_at.to_rfc3339());
-            let turns = build_turns_from_db_messages(&messages);
+        if !db_messages.is_empty() || !in_memory_turns.is_empty() {
+            let oldest_timestamp = db_messages.first().map(|m| m.created_at.to_rfc3339());
+            let db_turns = build_turns_from_db_messages(&db_messages);
+
+            // Merge logic:
+            // We want to return a seamless list.
+            // If in_memory_turns has turns, we append them to db_turns, but only if they are not already there.
+            // Simple heuristic: if the user_input and response match the LAST turn from DB, we might skip it.
+            // Even better: since we persist every complete turn, the DB usually has everything.
+            // The only thing memory has that DB might not is a TURN IN PROGRESS.
+            
+            let db_count = db_turns.len();
+            let mem_count = in_memory_turns.len();
+
+            let mut final_turns = db_turns;
+            
+            // In-memory turns that are not already in DB
+            let mut new_turns = Vec::new();
+            for mem_turn in in_memory_turns {
+                let already_in_db = final_turns.iter().any(|dt| {
+                    dt.user_input == mem_turn.user_input && dt.response == mem_turn.response
+                });
+                
+                if !already_in_db {
+                    new_turns.push(mem_turn);
+                }
+            }
+            final_turns.extend(new_turns);
+
+            // Memory-safety check: If the merged list is too long, truncate from the OLD end
+            // but keep at least 50 turns. The frontend will paginate anyway.
+            if final_turns.len() > limit {
+                let start = final_turns.len() - limit;
+                final_turns = final_turns[start..].to_vec();
+            }
+
+            tracing::info!(
+                "Merged history for thread {}: {} turns ({} from memory, {} from DB)",
+                thread_id,
+                final_turns.len(),
+                mem_count,
+                db_count
+            );
+
             return Ok(Json(HistoryResponse {
                 thread_id,
-                turns,
+                turns: final_turns,
                 has_more,
                 oldest_timestamp,
             }));
         }
     }
 
-    // Empty thread (just created, no messages yet)
+    // Zero-state: no DB and no memory turns
     Ok(Json(HistoryResponse {
         thread_id,
-        turns: Vec::new(),
+        turns: in_memory_turns,
         has_more: false,
         oldest_timestamp: None,
     }))
