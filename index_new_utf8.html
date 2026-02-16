@@ -1,24 +1,28 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
-
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>IronClaw</title>
-  <link rel="stylesheet" href="/style.css?v=3">
+  <link rel="stylesheet" href="/style.css">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 </head>
-
 <body>
   <!-- Auth Screen -->
   <div id="auth-screen">
-    <h1>IronClaw: Neco-Arc Edition</h1>
-    <div class="subtitle">Burunyuu~ 😼</div>
-    <div class="auth-form">
-      <input type="password" id="token-input" placeholder="Auth token" autofocus>
-      <button onclick="authenticate()">Connect</button>
+    <div class="auth-card-login">
+      <div class="auth-brand">
+        <h1>IronClaw</h1>
+        <p class="auth-tagline">Secure AI Assistant</p>
+      </div>
+      <div class="auth-form">
+        <label for="token-input">Gateway Token</label>
+        <input type="password" id="token-input" placeholder="Paste your auth token" autofocus>
+        <button onclick="authenticate()">Connect</button>
+      </div>
+      <div id="auth-error"></div>
+      <p class="auth-hint">Enter the GATEWAY_AUTH_TOKEN from your .env configuration.</p>
     </div>
-    <div id="auth-error"></div>
   </div>
 
   <!-- Main App (hidden until authenticated) -->
@@ -35,18 +39,17 @@
       <div class="status" id="gateway-status-trigger">
         <div class="dot" id="sse-dot"></div>
         <span id="sse-status">Connected</span>
-        <div id="gateway-popover" class="gateway-popover"></div>
+        <div class="gateway-popover" id="gateway-popover"></div>
       </div>
     </div>
 
     <!-- Chat Tab -->
     <div class="tab-panel active" id="tab-chat">
-      <button class="thread-toggle-btn" id="thread-toggle-btn" onclick="toggleThreadSidebar()"
-        title="Toggle sidebar">&laquo;</button>
       <div class="thread-sidebar" id="thread-sidebar">
         <div class="thread-sidebar-header">
           <span>Threads</span>
           <button class="thread-new-btn" onclick="createNewThread()" title="New thread (Ctrl/Cmd+N)">+</button>
+          <button class="thread-toggle-btn" id="thread-toggle-btn" onclick="toggleThreadSidebar()" title="Toggle sidebar">&laquo;</button>
         </div>
         <div class="assistant-item" id="assistant-thread" onclick="switchToAssistant()">
           <span class="assistant-label">Assistant</span>
@@ -78,10 +81,18 @@
         </div>
         <div class="memory-content">
           <div class="memory-breadcrumb" id="memory-breadcrumb">
-            workspace / <span id="memory-breadcrumb-path"></span>
+            <span id="memory-breadcrumb-path">workspace /</span>
+            <button class="memory-edit-btn" id="memory-edit-btn" style="display:none" onclick="startMemoryEdit()">Edit</button>
           </div>
           <div class="memory-viewer" id="memory-viewer">
-            <div class="empty">Select a file to view its contents (Neco ate them?! 🥟)</div>
+            <div class="empty">Select a file to view its contents</div>
+          </div>
+          <div class="memory-editor" id="memory-editor" style="display:none">
+            <textarea id="memory-edit-textarea"></textarea>
+            <div class="memory-editor-actions">
+              <button class="btn-save" onclick="saveMemoryEdit()">Save</button>
+              <button class="btn-cancel-edit" onclick="cancelMemoryEdit()">Cancel</button>
+            </div>
           </div>
         </div>
       </div>
@@ -96,6 +107,7 @@
             <tr>
               <th>ID</th>
               <th>Title</th>
+              <th>Source</th>
               <th>Status</th>
               <th>Created</th>
               <th>Actions</th>
@@ -135,8 +147,12 @@
           <thead>
             <tr>
               <th>Name</th>
-              <th>Status</th>
+              <th>Trigger</th>
+              <th>Action</th>
+              <th>Last Run</th>
+              <th>Next Run</th>
               <th>Runs</th>
+              <th>Status</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -152,6 +168,19 @@
     <!-- Extensions Tab -->
     <div class="tab-panel" id="tab-extensions">
       <div class="extensions-container">
+        <div class="extensions-section">
+          <h3>Install Extension</h3>
+          <div class="ext-install-form" id="ext-install-form">
+            <input type="text" id="ext-install-name" placeholder="Extension name (required)">
+            <input type="text" id="ext-install-url" placeholder="URL (optional)">
+            <select id="ext-install-kind">
+              <option value="mcp_server">MCP Server</option>
+              <option value="wasm_tool">WASM Tool</option>
+              <option value="wasm_channel">WASM Channel</option>
+            </select>
+            <button onclick="installExtension()">Install</button>
+          </div>
+        </div>
         <div class="extensions-section">
           <h3>Installed Extensions</h3>
           <div class="extensions-list" id="extensions-list">
@@ -173,27 +202,9 @@
         </div>
       </div>
     </div>
-
-    <!-- Laboratory: Job Detail Modal -->
-    <div class="modal" id="job-detail-modal" style="display:none"
-      onclick="if(event.target===this) this.style.display='none'">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2 id="job-detail-title">Job Activity</h2>
-          <button class="close-btn"
-            onclick="document.getElementById('job-detail-modal').style.display='none'">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="job-activity-log" id="job-activity-log"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Toasts -->
-    <div id="toasts" class="toasts-container"></div>
   </div>
 
-  <script src="/app.js?v=4"></script>
+  <div id="toasts"></div>
+  <script src="/app.js"></script>
 </body>
-
 </html>

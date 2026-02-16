@@ -181,6 +181,7 @@ pub async fn start_server(
         .route("/api/chat/history", get(chat_history_handler))
         .route("/api/chat/threads", get(chat_threads_handler))
         .route("/api/chat/thread/new", post(chat_new_thread_handler))
+        .route("/api/chat/thread/rename", post(chat_rename_thread_handler))
         .route("/api/chat/thread/delete", post(chat_delete_thread_handler))
         // Memory
         .route("/api/memory/tree", get(memory_tree_handler))
@@ -917,6 +918,38 @@ async fn chat_delete_thread_handler(
     } else {
         Err((StatusCode::NOT_FOUND, "Thread not found".to_string()))
     }
+}
+
+#[derive(Deserialize)]
+pub struct RenameThreadRequest {
+    pub thread_id: Uuid,
+    pub title: String,
+}
+
+async fn chat_rename_thread_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(req): Json<RenameThreadRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let store = state.store.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Database not available".to_string(),
+    ))?;
+
+    // Verify ownership
+    let owned = store
+        .conversation_belongs_to_user(req.thread_id, &state.user_id)
+        .await
+        .unwrap_or(false);
+    if !owned {
+        return Err((StatusCode::NOT_FOUND, "Thread not found".to_string()));
+    }
+
+    store
+        .update_conversation_title(req.thread_id, &req.title)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(StatusCode::OK)
 }
 
 // --- Memory handlers ---

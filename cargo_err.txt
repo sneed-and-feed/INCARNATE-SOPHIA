@@ -1,0 +1,159 @@
+    Checking ironclaw v5.3.0 (C:\Users\x\Desktop\ironclaw-main)
+error: unknown start of token: \
+  --> src\tools\builtin\sneed.rs:20:23
+   |
+20 |     fn name(&self) -> \u{26}str {
+   |                       ^
+
+error: unknown start of token: \
+  --> src\tools\builtin\sneed.rs:24:20
+   |
+24 |     fn description(\u{26}self) -> \u{26}str {
+   |                    ^
+
+error: unknown start of token: \
+  --> src\tools\builtin\sneed.rs:24:35
+   |
+24 |     fn description(\u{26}self) -> \u{26}str {
+   |                                   ^
+
+error: unknown start of token: \
+  --> src\tools\builtin\sneed.rs:28:26
+   |
+28 |     fn parameters_schema(\u{26}self) -> Value {
+   |                          ^
+
+error: unknown start of token: \
+  --> src\tools\builtin\sneed.rs:42:9
+   |
+42 |         \u{26}self,
+   |         ^
+
+error: unknown start of token: \
+  --> src\tools\builtin\sneed.rs:44:15
+   |
+44 |         _ctx: \u{26}JobContext,
+   |               ^
+
+error: unknown start of token: \
+  --> src\tools\builtin\sneed.rs:45:8
+   |
+45 |     ) -\u{3e} Result\u{3c}ToolOutput, ToolError\u{3e} {
+   |        ^
+
+error: expected at least one digit in exponent
+  --> src\tools\builtin\sneed.rs:45:11
+   |
+45 |     ) -\u{3e} Result\u{3c}ToolOutput, ToolError\u{3e} {
+   |           ^^
+
+error: unknown start of token: \
+  --> src\tools\builtin\sneed.rs:45:21
+   |
+45 |     ) -\u{3e} Result\u{3c}ToolOutput, ToolError\u{3e} {
+   |                     ^
+
+error: unknown start of token: \
+  --> src\tools\builtin\sneed.rs:45:48
+   |
+45 |     ) -\u{3e} Result\u{3c}ToolOutput, ToolError\u{3e} {
+   |                                                ^
+
+error: expected at least one digit in exponent
+  --> src\tools\builtin\sneed.rs:45:51
+   |
+45 |     ) -\u{3e} Result\u{3c}ToolOutput, ToolError\u{3e} {
+   |                                                   ^^
+
+error: unknown start of token: \
+  --> src\tools\builtin\sneed.rs:52:48
+   |
+52 |         let _agency = engine.deliberate(query, \u{26}detected);
+   |                                                ^
+
+error: missing `enum` for enum definition
+  --> src\tools\builtin\sneed.rs:20:29
+   |
+19 | impl Tool for SneedTool {
+   |                         - while parsing this item list starting here
+20 |     fn name(&self) -> \u{26}str {
+   |                             ^^^
+...
+69 | }
+   | - the item list ends here
+   |
+help: add `enum` here to parse `str` as an enum
+   |
+20 |     fn name(&self) -> \u{26}enum str {
+   |                             ++++
+
+error: expected `!`
+  --> src\tools\builtin\sneed.rs:20:33
+   |
+20 |     fn name(&self) -> \u{26}str {
+   |                                 ^
+
+warning: unused import: `serde_json::Value`
+ --> src\tools\builtin\sneed.rs:2:5
+  |
+2 | use serde_json::Value;
+  |     ^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::time::Duration`
+ --> src\tools\builtin\sneed.rs:3:5
+  |
+3 | use std::time::Duration;
+  |     ^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::context::JobContext`
+ --> src\tools\builtin\sneed.rs:5:5
+  |
+5 | use crate::context::JobContext;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused imports: `GlyphWave` and `StakesEngine`
+ --> src\tools\builtin\sneed.rs:6:27
+  |
+6 | use crate::sneed_engine::{GlyphWave, StakesEngine};
+  |                           ^^^^^^^^^  ^^^^^^^^^^^^
+
+warning: unused imports: `ToolError`, `ToolOutput`, and `Tool`
+ --> src\tools\builtin\sneed.rs:7:20
+  |
+7 | use crate::tools::{Tool, ToolError, ToolOutput};
+  |                    ^^^^  ^^^^^^^^^  ^^^^^^^^^^
+
+warning: unused import: `uuid::Uuid`
+ --> src\worker\api.rs:2:5
+  |
+2 | use uuid::Uuid;
+  |     ^^^^^^^^^^
+
+error[E0277]: the trait bound `SneedTool: Tool` is not satisfied
+   --> src\tools\registry.rs:123:28
+    |
+123 |         self.register_sync(Arc::new(SneedTool::new()));
+    |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+    |
+help: the trait `Tool` is not implemented for `SneedTool`
+   --> src\tools\builtin\sneed.rs:10:1
+    |
+ 10 | pub struct SneedTool;
+    | ^^^^^^^^^^^^^^^^^^^^
+    = help: the following other types implement trait `Tool`:
+              ApplyPatchTool
+              BuildSoftwareTool
+              CancelJobTool
+              CreateJobTool
+              EcommerceTool
+              HelpTool
+              HttpTool
+              JobStatusTool
+            and 24 others
+    = note: required for the cast from `Arc<SneedTool>` to `Arc<(dyn Tool + 'static)>`
+
+For more information about this error, try `rustc --explain E0277`.
+warning: `ironclaw` (lib) generated 6 warnings
+error: could not compile `ironclaw` (lib) due to 15 previous errors; 6 warnings emitted

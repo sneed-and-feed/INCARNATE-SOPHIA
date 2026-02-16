@@ -1021,6 +1021,19 @@ impl Database for Store {
         Ok(())
     }
 
+    async fn update_conversation_title(
+        &self,
+        conversation_id: Uuid,
+        title: &str,
+    ) -> Result<(), DatabaseError> {
+        self.update_conversation_metadata_field(
+            conversation_id,
+            "title",
+            &serde_json::Value::String(title.to_string()),
+        )
+        .await
+    }
+
     async fn delete_conversation(
         &self,
         id: Uuid,

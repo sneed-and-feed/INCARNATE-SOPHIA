@@ -57,6 +57,12 @@ pub trait Database: Send + Sync {
         value: &serde_json::Value,
     ) -> Result<(), DatabaseError>;
 
+    async fn update_conversation_title(
+        &self,
+        conversation_id: Uuid,
+        title: &str,
+    ) -> Result<(), DatabaseError>;
+
     async fn delete_conversation(
         &self,
         id: Uuid,
