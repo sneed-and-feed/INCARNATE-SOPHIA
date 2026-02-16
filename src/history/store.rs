@@ -155,6 +155,23 @@ impl Store {
         Ok(id)
     }
 
+    /// Ensure conversation exists (create if missing).
+    pub async fn ensure_conversation(
+        &self,
+        id: Uuid,
+        channel: &str,
+        user_id: &str,
+        thread_id: Option<&str>,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.conn().await?;
+        conn.execute(
+            "INSERT INTO conversations (id, channel, user_id, thread_id) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING",
+            &[&id, &channel, &user_id, &thread_id],
+        )
+        .await?;
+        Ok(())
+    }
+
     /// Update conversation last activity.
     pub async fn touch_conversation(&self, id: Uuid) -> Result<(), DatabaseError> {
         let conn = self.conn().await?;

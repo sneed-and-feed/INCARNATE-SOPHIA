@@ -396,7 +396,8 @@ function loadThreads() {
 
       const label = document.createElement('span');
       label.className = 'thread-label';
-      label.textContent = t.title || t.id.substring(0, 8);
+      label.textContent = t.title ? t.title : (t.id ? t.id.substring(0, 8) : 'New Thread');
+      if (!label.textContent.trim()) label.textContent = 'Untitled Thread';
       // label.onclick removed, handled by item
       item.appendChild(label);
 
@@ -419,7 +420,16 @@ function loadThreads() {
       list.appendChild(item);
     }
 
-    if (!currentThreadId && assistantThreadId) {
+    if (!currentThreadId && threads.length > 0) {
+      // Auto-select most recent thread if not assistant
+      if (threads[0].id !== assistantThreadId) {
+        switchThread(threads[0].id);
+      } else if (threads.length > 1) {
+        switchThread(threads[1].id);
+      } else {
+        switchToAssistant();
+      }
+    } else if (!currentThreadId && assistantThreadId) {
       switchToAssistant();
     }
   }).catch(() => { });

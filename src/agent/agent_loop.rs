@@ -145,6 +145,33 @@ impl Agent {
         self.deps.workspace.as_ref()
     }
 
+    /// Persist a message to the database.
+    async fn persist_message(&self, thread_id: Uuid, role: &str, content: &str) {
+        if let Some(store) = self.store() {
+            if let Err(e) = store.add_conversation_message(thread_id, role, content).await {
+                tracing::error!("Failed to persist message (role={}): {}", role, e);
+            }
+        }
+    }
+
+    /// Ensure conversation exists in the database.
+    async fn ensure_conversation_persisted(
+        &self,
+        thread_id: Uuid,
+        user_id: &str,
+        channel: &str,
+        external_thread_id: Option<&str>,
+    ) {
+        if let Some(store) = self.store() {
+            if let Err(e) = store
+                .ensure_conversation(thread_id, channel, user_id, external_thread_id)
+                .await
+            {
+                tracing::error!("Failed to ensure conversation persisted: {}", e);
+            }
+        }
+    }
+
     /// Run the agent main loop.
     pub async fn run(self) -> Result<(), Error> {
         // Start channels
@@ -597,6 +624,10 @@ impl Agent {
         // Natural language goes through the agentic loop
         // Job tools (create_job, list_jobs, etc.) are in the tool registry
 
+        // PERSISTENCE: Ensure conversation exists and save user message
+        self.ensure_conversation_persisted(thread_id, &message.user_id, &message.channel, message.thread_id.as_deref()).await;
+        self.persist_message(thread_id, "user", content).await;
+
         // Auto-compact if needed BEFORE adding new turn
         {
             let mut sess = session.lock().await;
@@ -699,6 +730,7 @@ impl Agent {
         match result {
             Ok(AgenticLoopResult::Response(response)) => {
                 thread.complete_turn(&response);
+                self.persist_message(thread_id, "assistant", &response).await;
 
                 // Sovereign Memory Logging
                 if let Some(workspace) = self.workspace() {
