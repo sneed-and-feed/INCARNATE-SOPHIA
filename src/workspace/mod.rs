@@ -338,16 +338,22 @@ impl Workspace {
         ];
 
         for path in identity_files {
-            // Check if file exists in workspace FIRST
-            // ALWAYS try to load from local filesystem and overwrite DB to ensure disk is source of truth
-            if let Ok(content) = tokio::fs::read_to_string(path).await {
+            // Priority 1: Check if file exists on disk (personal version)
+            // Priority 2: Check if file exists in templates/ (sanitized version)
+            let disk_content = if let Ok(content) = tokio::fs::read_to_string(path).await {
+                Some(content)
+            } else if let Ok(content) = tokio::fs::read_to_string(format!("templates/{}", path)).await {
+                tracing::info!("Found template for missing identity file: templates/{}", path);
+                Some(content)
+            } else {
+                None
+            };
+
+            if let Some(content) = disk_content {
                 if !content.trim().is_empty() {
-                    tracing::info!("Syncing workspace file from disk: {}", path);
+                    tracing::info!("Syncing identity file to workspace: {}", path);
                     self.write(path, &content).await?;
                 }
-            } else if !self.exists(path).await? {
-                 // If not on disk, maybe we have a default? (Current logic implies no defaults other than what's on disk)
-                 // Just keep existing behavior of doing nothing if not on disk and not in DB.
             }
         }
 

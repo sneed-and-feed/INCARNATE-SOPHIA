@@ -77,7 +77,7 @@ USER.md
 MEMORY.md
 HEARTBEAT.md
 daily/
-workspace/
+/workspace/
 
 # Development Scripts and Temporary Files
 db_list*

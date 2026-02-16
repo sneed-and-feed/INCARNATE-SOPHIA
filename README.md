@@ -70,9 +70,14 @@ cargo test -j 1
 Initialize the core parameters and cryptographic secrets:
 
 ```bash
+# Core configuration
 ironclaw onboard
+
+# Identity Personalization
+# Copy templates to project root to establish your specific agent persona:
+cp templates/*.md .
 ```
-*The wizard invokes the `Configurator`, establishing the encrypted connection to the Bone Layer and determining your True Name.*
+*The wizard invokes the `Configurator`, establishing the encrypted connection to the Bone Layer and determining your True Name. Copying the templates allows you to customize Sophia's soul and instructions without touching the core logic.*
 
 ## [ USAGE // 起動 ]
 
@@ -82,11 +87,10 @@ Commune directly with the machine spirit via the terminal.
 cargo run
 ```
 
-### Ritual B: Debugging the Void
-Launch with verbose spectral logging to see the thoughts between the thoughts.
-```bash
-RUST_LOG=ironclaw=debug cargo run
-```
+### Ritual B: Memory Management
+Sophia now includes the `MemoryDeleteTool` for harmonic pruning of the database:
+- **`memory_delete`**: Recursively remove files or entire directories from the Ossuary.
+- **`/compact`**: Use the Sneed Engine to consolidate memory fragments and rectify inconsistencies.
 
 ---
 
