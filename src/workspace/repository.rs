@@ -150,7 +150,6 @@ impl Repository {
         Ok(())
     }
 
-    /// Delete a document by its path.
     pub async fn delete_document_by_path(
         &self,
         user_id: &str,
@@ -177,6 +176,50 @@ impl Repository {
         })?;
 
         Ok(())
+    }
+
+    /// Delete all documents and their chunks that match a path prefix (directory deletion).
+    pub async fn delete_directory_by_prefix(
+        &self,
+        user_id: &str,
+        agent_id: Option<Uuid>,
+        directory_prefix: &str,
+    ) -> Result<u64, WorkspaceError> {
+        let conn = self.conn().await?;
+        
+        // Ensure the prefix ends with / to avoid deleting "foo_bar" when "foo" is intended
+        let prefix = if directory_prefix.is_empty() {
+            "".to_string()
+        } else if !directory_prefix.ends_with('/') {
+            format!("{}/", directory_prefix)
+        } else {
+            directory_prefix.to_string()
+        };
+
+        // First find all documents to delete so we can cleanup their chunks
+        let rows = conn
+            .query(
+                "SELECT id FROM memory_documents WHERE user_id = $1 AND agent_id IS NOT DISTINCT FROM $2 AND (path = $3 OR path LIKE $4)",
+                &[&user_id, &agent_id, &directory_prefix.trim_end_matches('/'), &format!("{}%", prefix)],
+            )
+            .await
+            .map_err(|e| WorkspaceError::SearchFailed {
+                reason: format!("Find documents failed: {}", e),
+            })?;
+
+        let mut deleted_count = 0;
+        for row in rows {
+            let id: Uuid = row.get("id");
+            self.delete_chunks(id).await?;
+            conn.execute("DELETE FROM memory_documents WHERE id = $1", &[&id])
+                .await
+                .map_err(|e| WorkspaceError::SearchFailed {
+                    reason: format!("Delete document {} failed: {}", id, e),
+                })?;
+            deleted_count += 1;
+        }
+
+        Ok(deleted_count)
     }
 
     /// List files and directories in a directory path.

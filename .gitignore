@@ -64,12 +64,34 @@ coverage.xml
 .mypy_cache/
 .pytest_cache/
 
-# Clawchan
+# Claw Specifics
 .config/4claw/
 **/4claw/
-
-# Secrets
 credentials.json
+
+# Personal Workspace
+AGENTS.md
+IDENTITY.md
+SOUL.md
+USER.md
+MEMORY.md
+HEARTBEAT.md
+daily/
+workspace/
+
+# Development Scripts and Temporary Files
+db_list*
+check_out*
+memory_paths.txt
+verify_out.txt
+cargo_out.txt
+check_out_utf8.txt
+list_memory.py
+prune_memory.py
+src/bin/list_all_db.rs
+src/bin/list_memory_rust.rs
+src/bin/prune_memory.rs
+src/bin/verify_prune.rs
 
 # Reproduction scripts
 reproduce_ghost.rs

@@ -452,6 +452,96 @@ impl Tool for MemoryTreeTool {
     }
 }
 
+/// Tool for deleting workspace files or directories.
+pub struct MemoryDeleteTool {
+    workspace: Arc<Workspace>,
+}
+
+impl MemoryDeleteTool {
+    pub fn new(workspace: Arc<Workspace>) -> Self {
+        Self { workspace }
+    }
+}
+
+#[async_trait]
+impl Tool for MemoryDeleteTool {
+    fn name(&self) -> &str {
+        "memory_delete"
+    }
+
+    fn description(&self) -> &str {
+        "Delete a file or directory from the workspace memory (database-backed storage). \
+         If is_directory is true, it will recursively delete all files matching the path prefix."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the file or directory to delete."
+                },
+                "is_directory": {
+                    "type": "boolean",
+                    "description": "If true, treat the path as a directory and delete all files within it.",
+                    "default": false
+                }
+            },
+            "required": ["path"]
+        })
+    }
+
+    async fn execute(
+        &self,
+        params: serde_json::Value,
+        _ctx: &JobContext,
+    ) -> Result<ToolOutput, ToolError> {
+        let start = std::time::Instant::now();
+
+        let path = params
+            .get("path")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| ToolError::InvalidParameters("missing 'path' parameter".to_string()))?;
+
+        let is_directory = params
+            .get("is_directory")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        if is_directory {
+            let count = self.workspace.delete_directory(path).await
+                .map_err(|e| ToolError::ExecutionFailed(format!("Directory deletion failed: {}", e)))?;
+            
+            Ok(ToolOutput::success(
+                serde_json::json!({
+                    "status": "deleted",
+                    "path": path,
+                    "is_directory": true,
+                    "deleted_count": count
+                }),
+                start.elapsed(),
+            ))
+        } else {
+            self.workspace.delete(path).await
+                .map_err(|e| ToolError::ExecutionFailed(format!("File deletion failed: {}", e)))?;
+
+            Ok(ToolOutput::success(
+                serde_json::json!({
+                    "status": "deleted",
+                    "path": path,
+                    "is_directory": false
+                }),
+                start.elapsed(),
+            ))
+        }
+    }
+
+    fn requires_sanitization(&self) -> bool {
+        false // Internal tool
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

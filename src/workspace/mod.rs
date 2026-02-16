@@ -211,6 +211,14 @@ impl Workspace {
             .await
     }
 
+    /// Delete a directory (all files with prefix).
+    pub async fn delete_directory(&self, directory: &str) -> Result<u64, WorkspaceError> {
+        let directory = normalize_directory(directory);
+        self.repo
+            .delete_directory_by_prefix(&self.user_id, self.agent_id, &directory)
+            .await
+    }
+
     /// List files and directories in a path.
     ///
     /// Returns immediate children (not recursive).

@@ -28,7 +28,7 @@ pub use http::HttpTool;
 pub use job::{CancelJobTool, CreateJobTool, JobStatusTool, ListJobsTool};
 pub use json::JsonTool;
 pub use marketplace::MarketplaceTool;
-pub use memory::{MemoryReadTool, MemorySearchTool, MemoryTreeTool, MemoryWriteTool};
+pub use memory::{MemoryDeleteTool, MemoryReadTool, MemorySearchTool, MemoryTreeTool, MemoryWriteTool};
 pub use restaurant::RestaurantTool;
 pub use shell::ShellTool;
 pub use search::SearchTool;

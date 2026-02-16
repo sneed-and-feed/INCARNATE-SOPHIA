@@ -14,7 +14,7 @@ use crate::safety::SafetyLayer;
 use crate::tools::builder::{BuildSoftwareTool, BuilderConfig, LlmSoftwareBuilder};
 use crate::tools::builtin::{
     ApplyPatchTool, CancelJobTool, CreateJobTool, EchoTool, HelpTool, HttpTool, JobStatusTool, JsonTool,
-    ListDirTool, ListJobsTool, MemoryReadTool, MemorySearchTool, MemoryTreeTool, MemoryWriteTool,
+    ListDirTool, ListJobsTool, MemoryDeleteTool, MemoryReadTool, MemorySearchTool, MemoryTreeTool, MemoryWriteTool,
     ReadFileTool, SearchTool, ShellTool, SneedTool, TimeTool, ToolActivateTool, ToolAuthTool, ToolInstallTool,
     ToolListTool, ToolRemoveTool, ToolSearchTool, WriteFileTool,
 };
@@ -148,9 +148,10 @@ impl ToolRegistry {
         self.register_sync(Arc::new(MemorySearchTool::new(Arc::clone(&workspace))));
         self.register_sync(Arc::new(MemoryWriteTool::new(Arc::clone(&workspace))));
         self.register_sync(Arc::new(MemoryReadTool::new(Arc::clone(&workspace))));
-        self.register_sync(Arc::new(MemoryTreeTool::new(workspace)));
+        self.register_sync(Arc::new(MemoryTreeTool::new(Arc::clone(&workspace))));
+        self.register_sync(Arc::new(MemoryDeleteTool::new(workspace)));
 
-        tracing::info!("Registered 4 memory tools");
+        tracing::info!("Registered 5 memory tools");
     }
 
     /// Register job management tools.

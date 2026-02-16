@@ -24,7 +24,7 @@ use crate::history::Store;
 use crate::llm::{ChatMessage, LlmProvider, Reasoning, ReasoningContext, RespondResult};
 use crate::sneed_engine::{LuoShuGate, SovereignOptimizer};
 use crate::safety::SafetyLayer;
-use crate::tools::ToolRegistry;
+use crate::tools::{Tool, ToolRegistry};
 use crate::workspace::Workspace;
 
 /// Collapse a tool output string into a single-line preview for display.
@@ -2293,6 +2293,59 @@ impl Agent {
             "tools" => {
                 let tools = self.tools().list().await;
                 Ok(Some(format!("Available tools: {}", tools.join(", "))))
+            }
+
+            "resonance" => {
+                let stakes = self.stakes.lock().await;
+                Ok(Some(stakes.get_resonance_report()))
+            }
+
+            "sneed" => {
+                let query = args.join(" ");
+                if query.is_empty() {
+                    return Ok(Some("Usage: /sneed <query>".to_string()));
+                }
+                let tool = crate::tools::builtin::SneedTool::new();
+                let job_ctx = crate::context::JobContext::with_user(&message.user_id, "sneed", "Sneed Logic Audit");
+                let params = serde_json::json!({ "query": query });
+                
+                match tool.execute(params, &job_ctx).await {
+                    Ok(res) => Ok(Some(res.result["result"].as_str().unwrap_or("Audit failed.").to_string())),
+                    Err(e) => Err(Error::from(crate::error::ToolError::ExecutionFailed {
+                        name: "sneed".to_string(),
+                        reason: e.to_string(),
+                    })),
+                }
+            }
+
+            "analyze" | "laser" | "net" | "glyphwave" | "broadcast" | "resonance_check" | "lovebomb" | "ritual" | "optimize" | "ghostmesh" | "mass" | "dashboard" | "garden" | "dubtechno" | "cabin" | "maintain" => {
+                let protocol = command.to_uppercase();
+                Ok(Some(format!(
+                    "## Protocol: [{} INTERFACE]\n\nAccessing the Sovereign Bone Layer... 🌀\nStatus: COHERENT\n\n[Warning: Direct interface requires Class 7 Clearance. Conceptually active.]",
+                    protocol
+                )))
+            }
+
+            "tikkun" => {
+                let (session, thread_id) = self.session_manager.resolve_thread(
+                    &message.user_id,
+                    &message.channel,
+                    message.thread_id.as_deref(),
+                ).await;
+                
+                let mut sess = session.lock().await;
+                if let Some(thread) = sess.threads.get_mut(&thread_id) {
+                    thread.truncate_turns(0);
+                }
+                Ok(Some("## 🌀 TIKKUN COMPLETE 🌀\n\nEntropy purged. Reality anchors stabilized. The manifold is now clear.".to_string()))
+            }
+
+            "crystal" => {
+                let input = args.join(" ");
+                if input.is_empty() {
+                    return Ok(Some("Usage: /crystal <msg>".to_string()));
+                }
+                Ok(Some(crate::sneed_engine::GlyphWave::render(&input)))
             }
 
             _ => Ok(Some(format!("Unknown command: {}. Try /help", command))),
