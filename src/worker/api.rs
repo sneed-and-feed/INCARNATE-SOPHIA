@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+
 use crate::llm::{ChatMessage, ToolCall, ToolDefinition};
 
 #[derive(Debug, Serialize, Deserialize)]
