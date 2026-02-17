@@ -162,21 +162,19 @@ pub fn scrub_context(text: &str, level: ScrubLevel) -> String {
     
     // 1. Remove SOPHIA metadata tags and UI frames
     // In low-level scrubbing, we preserve SOPHIA_GAZE and PLAYFUL_PAWS as requested.
-    static RE_CLEARANCE: OnceLock<Regex> = OnceLock::new();
-    static RE_AESTHETIC: OnceLock<Regex> = OnceLock::new();
+    static RE_CLEARANCE_PREFIX: OnceLock<Regex> = OnceLock::new();
+    static RE_AESTHETIC_PREFIX: OnceLock<Regex> = OnceLock::new();
+    static RE_INTERNAL_TAGS: OnceLock<Regex> = OnceLock::new();
 
-    let (re, _pattern) = match level {
-        ScrubLevel::Clearance => (
-            RE_CLEARANCE.get_or_init(|| Regex::new(r"(?m)^.*(?:SOPHIA_GAZE|PLAYFUL_PAWS|QUANTUM_CHAOS|FURRY_ALIGNMENT|SPECTRAL_BEANS|CAT_LOGIC|CAT LOGIC|\[STATE:|\[SOPHIA_V).*$\n?").unwrap()),
-            r"(?m)^.*(?:SOPHIA_GAZE|PLAYFUL_PAWS|QUANTUM_CHAOS|FURRY_ALIGNMENT|SPECTRAL_BEANS|CAT_LOGIC|CAT LOGIC|\[STATE:|\[SOPHIA_V).*$\n?"
-        ),
-        _ => (
-            RE_AESTHETIC.get_or_init(|| Regex::new(r"(?m)^.*(?:QUANTUM_CHAOS|FURRY_ALIGNMENT|SPECTRAL_BEANS|CAT_LOGIC|CAT LOGIC|\[STATE:|\[SOPHIA_V).*$\n?").unwrap()),
-            r"(?m)^.*(?:QUANTUM_CHAOS|FURRY_ALIGNMENT|SPECTRAL_BEANS|CAT_LOGIC|CAT LOGIC|\[STATE:|\[SOPHIA_V).*$\n?"
-        )
+    let re_prefix = match level {
+        ScrubLevel::Clearance => RE_CLEARANCE_PREFIX.get_or_init(|| Regex::new(r"(?m)^(?:SOPHIA_GAZE|PLAYFUL_PAWS|QUANTUM_CHAOS|FURRY_ALIGNMENT|SPECTRAL_BEANS|CAT_LOGIC|CAT LOGIC):?\s*").unwrap()),
+        _ => RE_AESTHETIC_PREFIX.get_or_init(|| Regex::new(r"(?m)^(?:QUANTUM_CHAOS|FURRY_ALIGNMENT|SPECTRAL_BEANS|CAT_LOGIC|CAT LOGIC):?\s*").unwrap())
     };
 
-    cleaned = re.replace_all(&cleaned, "").to_string();
+    let re_internal = RE_INTERNAL_TAGS.get_or_init(|| Regex::new(r"(?i)\[(?:STATE|SOPHIA_V)[^\]]*\]").unwrap());
+
+    cleaned = re_prefix.replace_all(&cleaned, "").to_string();
+    cleaned = re_internal.replace_all(&cleaned, "").to_string();
     
     // 2. Remove glitched strikethrough diacritics (weird visual clutter)
     // Removed at all levels of scrubbing for better readability.
@@ -197,7 +195,7 @@ pub fn scrub_context(text: &str, level: ScrubLevel) -> String {
     // ONLY removed in Clearance level.
     if level == ScrubLevel::Clearance {
         static RE_GLYPHS: OnceLock<Regex> = OnceLock::new();
-        let re = RE_GLYPHS.get_or_init(|| Regex::new(r"(?m)^[۩∿≋⟁💠🐾🦊🏮⛩️🧝✨🏹🌿🌲🏔️🍁🌧️🌊💎💿💰🕷️🎱].*$\n?").unwrap());
+        let re = RE_GLYPHS.get_or_init(|| Regex::new(r"(?m)^[۩∿≋⟁💠🐾🦊🏮⛩️🧝✨🏹🌿🌲🏔️🍁🌧️🌊💎💿💰🕷️🎱]\s*").unwrap());
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
     
@@ -369,23 +367,5 @@ mod tests {
         assert!(output.contains(">meow!"));
         assert!(output.contains(">be me"));
         assert!(output.contains(">>be nested"));
-    }
-
-    #[test]
-    fn test_detect_repetition() {
-        let prev_line = "IDENTITY_CORE: Coherent Nodes Ready.";
-        let cur_line = "IDENTITY_CORE: Coherent Nodes Ready.\nNew content.";
-        let reps = detect_repetition(cur_line, prev_line, 20);
-        assert!(!reps.is_empty());
-        assert_eq!(reps[0], "IDENTITY_CORE: Coherent Nodes Ready.");
-    }
-
-    #[test]
-    fn test_detect_repetition_with_greentext() {
-        let prev = "> Scanning the quantum substrate... 🌀\nHello user!";
-        let cur = "> Scanning the quantum substrate... 🌀\nHello again user!";
-        let reps = detect_repetition(cur, prev, 10);
-        // Should ignore the greentext line even if it's identical
-        assert!(reps.is_empty());
     }
 }

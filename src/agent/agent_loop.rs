@@ -971,7 +971,12 @@ impl Agent {
                         crate::agent::context_monitor::ScrubLevel::Technical
                     };
                     
-                    let text = crate::agent::context_monitor::scrub_context(&text, scrub_level);
+                    let mut text = crate::agent::context_monitor::scrub_context(&text, scrub_level);
+
+                    if text.is_empty() {
+                        tracing::warn!("Response was emptied by scrubbing. Using fallback.");
+                        text = "Coherent substrate stabilized. Ready for next input.".to_string();
+                    }
 
                     // Repetition Safeguard: Compare with previous assistant message if available
                     if let Some(prev_msg) = context_messages.iter().rev().find(|m| m.role == crate::llm::Role::Assistant) {

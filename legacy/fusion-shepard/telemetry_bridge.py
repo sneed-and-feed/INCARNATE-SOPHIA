@@ -57,7 +57,36 @@ class TelemetryBridge:
         """
         try:
             # Simple grep for 'TODO' or 'FIXME'
-            return 0.05 # Bounded noise baseline
+            todo_count = 0
+            total_lines = 0
+            
+            # Focused search on src and legacy directories
+            search_paths = [
+                os.path.join(self.repo_path, 'src'),
+                os.path.join(self.repo_path, 'legacy')
+            ]
+            
+            for path in search_paths:
+                if not os.path.exists(path):
+                    continue
+                for root, _, files in os.walk(path):
+                    for file in files:
+                        if file.endswith(('.rs', '.py', '.js', '.ts')):
+                            file_path = os.path.join(root, file)
+                            try:
+                                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                                    lines = f.readlines()
+                                    total_lines += len(lines)
+                                    todo_count += sum(1 for line in lines if 'TODO' in line or 'FIXME' in line)
+                            except:
+                                continue
+            
+            if total_lines == 0:
+                return 0.05
+            
+            # Heuristic expansion: TODO density scaled for signal
+            sigma = (todo_count / total_lines) * 100 
+            return min(max(sigma, 0.05), 0.25) 
         except:
             return 0.1
 
