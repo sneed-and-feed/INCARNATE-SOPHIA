@@ -1,0 +1,54 @@
+Validating session...
+Session valid.
+[2m2026-02-16T19:14:26.743528Z[0m [32m INFO[0m Starting IronClaw...
+[2m2026-02-16T19:14:26.743773Z[0m [32m INFO[0m Loaded configuration for agent: sophia
+[2m2026-02-16T19:14:26.743874Z[0m [32m INFO[0m NEAR AI session authenticated
+[2m2026-02-16T19:14:26.876958Z[0m [32m INFO[0m Database migrations should be run via: refinery migrate -c refinery.toml
+[2m2026-02-16T19:14:26.877086Z[0m [32m INFO[0m Database connected and migrations applied
+[2m2026-02-16T19:14:26.877160Z[0m [32m INFO[0m Using direct Google Gemini API (AI Studio)
+[2m2026-02-16T19:14:26.877266Z[0m [32m INFO[0m LLM provider initialized: gemini-2.5-flash
+[2m2026-02-16T19:14:26.898351Z[0m [32m INFO[0m Safety layer initialized
+[2m2026-02-16T19:14:26.898509Z[0m [32m INFO[0m Registered 7 built-in tools
+[2m2026-02-16T19:14:26.898530Z[0m [32m INFO[0m Registered 7 built-in tools
+[2m2026-02-16T19:14:26.898546Z[0m [32m INFO[0m Embeddings enabled via Google (model: gemini-embedding-001)
+[2m2026-02-16T19:14:26.898661Z[0m [32m INFO[0m Registered 5 memory tools
+[2m2026-02-16T19:14:26.898727Z[0m [32m INFO[0m Registered 5 development tools
+[2m2026-02-16T19:14:26.899119Z[0m [32m INFO[0m Registered software builder tool
+[2m2026-02-16T19:14:26.899140Z[0m [32m INFO[0m Builder mode enabled
+[2m2026-02-16T19:14:26.899673Z[0m [32m INFO[0m Registered 6 extension management tools
+[2m2026-02-16T19:14:26.899695Z[0m [32m INFO[0m Extension manager initialized with in-chat discovery tools
+[2m2026-02-16T19:14:26.899706Z[0m [32m INFO[0m Tool registry initialized with 24 total tools
+[2m2026-02-16T19:14:26.899730Z[0m [32m INFO[0m REPL mode enabled
+[2m2026-02-16T19:14:26.900043Z[0m [32m INFO[0m Found template for missing identity file: templates/AGENTS.md
+[2m2026-02-16T19:14:26.900069Z[0m [32m INFO[0m Syncing identity file to workspace: AGENTS.md
+[2m2026-02-16T19:14:26.916054Z[0m [32m INFO[0m Google Embeddings Request (OpenAI): URL=https://generativelanguage.googleapis.com/v1beta/openai/embeddings, Model=gemini-embedding-001
+[2m2026-02-16T19:14:27.489931Z[0m [32m INFO[0m Found template for missing identity file: templates/SOUL.md
+[2m2026-02-16T19:14:27.489968Z[0m [32m INFO[0m Syncing identity file to workspace: SOUL.md
+[2m2026-02-16T19:14:27.492167Z[0m [32m INFO[0m Google Embeddings Request (OpenAI): URL=https://generativelanguage.googleapis.com/v1beta/openai/embeddings, Model=gemini-embedding-001
+[2m2026-02-16T19:14:27.755157Z[0m [32m INFO[0m Found template for missing identity file: templates/IDENTITY.md
+[2m2026-02-16T19:14:27.755213Z[0m [32m INFO[0m Syncing identity file to workspace: IDENTITY.md
+[2m2026-02-16T19:14:27.757849Z[0m [32m INFO[0m Google Embeddings Request (OpenAI): URL=https://generativelanguage.googleapis.com/v1beta/openai/embeddings, Model=gemini-embedding-001
+[2m2026-02-16T19:14:28.023574Z[0m [32m INFO[0m Found template for missing identity file: templates/USER.md
+[2m2026-02-16T19:14:28.023610Z[0m [32m INFO[0m Syncing identity file to workspace: USER.md
+[2m2026-02-16T19:14:28.026031Z[0m [32m INFO[0m Google Embeddings Request (OpenAI): URL=https://generativelanguage.googleapis.com/v1beta/openai/embeddings, Model=gemini-embedding-001
+[2m2026-02-16T19:14:28.288019Z[0m [32m INFO[0m Syncing identity file to workspace: README.md
+[2m2026-02-16T19:14:28.313734Z[0m [32m INFO[0m Google Embeddings Request (OpenAI): URL=https://generativelanguage.googleapis.com/v1beta/openai/embeddings, Model=gemini-embedding-001
+[2m2026-02-16T19:14:28.598717Z[0m [32m INFO[0m Google Embeddings Request (OpenAI): URL=https://generativelanguage.googleapis.com/v1beta/openai/embeddings, Model=gemini-embedding-001
+[2m2026-02-16T19:14:28.869163Z[0m [32m INFO[0m Orchestrator API started on :50051, sandbox delegation enabled
+[2m2026-02-16T19:14:28.869220Z[0m [32m INFO[0m Registered 4 job management tools
+[2m2026-02-16T19:14:28.869306Z[0m [32m INFO[0m Web gateway enabled on 127.0.0.1:3000
+[2m2026-02-16T19:14:28.869335Z[0m [32m INFO[0m Web UI: http://127.0.0.1:3000/?token=testtoken123
+[2m2026-02-16T19:14:28.869479Z[0m [32m INFO[0m Agent initialized, starting main loop...
+[2m2026-02-16T19:14:28.869538Z[0m [32m INFO[0m Orchestrator internal API listening on 127.0.0.1:50051
+[2m2026-02-16T19:14:28.869603Z[0m [32m INFO[0m Started channel: repl
+[1mIronClaw[0m  /help for commands, /quit to exit
+
+[2m2026-02-16T19:14:28.870554Z[0m [32m INFO[0m Started channel: gateway
+Input error: [2m2026-02-16T19:14:28.870690Z[0m [32m INFO[0m Heartbeat enabled with 1800s interval
+[2m2026-02-16T19:14:28.870760Z[0m [32m INFO[0m Agent sophia ready and listening
+[2m2026-02-16T19:14:28.870845Z[0m [32m INFO[0m Starting heartbeat loop with interval 1800s
+The handle is invalid. (os error 6)
+[2m2026-02-16T19:15:38.266496Z[0m [32m INFO[0m Ctrl+C received, shutting down...
+[2m2026-02-16T19:15:38.266554Z[0m [32m INFO[0m Agent shutting down...
+[2m2026-02-16T19:15:38.266674Z[0m [32m INFO[0m Agent shutdown complete
+[2m2026-02-16T19:15:38.266667Z[0m [32m INFO[0m Web gateway shutting down

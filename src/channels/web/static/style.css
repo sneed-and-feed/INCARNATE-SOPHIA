@@ -1308,3 +1308,420 @@ textarea,
 select {
   font-family: var(--font-ui) !important;
 }
+
+/* Extensions Tab */
+.extensions-container {
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.extensions-section {
+  margin-bottom: 30px;
+}
+
+.extensions-section h3 {
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+  margin-bottom: 15px;
+}
+
+.extensions-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.extension-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.extension-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.extension-name {
+  font-weight: bold;
+  color: var(--text);
+  font-size: 1.1rem;
+}
+
+.extension-kind {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.extension-status {
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.extension-status.active {
+  color: var(--success);
+}
+
+.extension-status.inactive {
+  color: var(--text-dim);
+}
+
+.extension-desc {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  flex-grow: 1;
+}
+
+.extension-meta {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  display: flex;
+  gap: 10px;
+}
+
+.extension-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 5px;
+}
+
+.extension-actions button {
+  flex: 1;
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--accent);
+  color: #000;
+  font-weight: bold;
+}
+
+.extension-actions button.danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* Tools Table */
+.tools-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.tools-table th {
+  background: var(--bg-tertiary);
+  color: var(--accent);
+  padding: 12px;
+  text-align: left;
+  font-weight: bold;
+}
+
+.tools-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.tools-table tr:last-child td {
+  border-bottom: none;
+}
+
+.tool-name {
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-weight: bold;
+}
+
+.tool-desc {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+/* Extensions Tab */
+.extensions-container {
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.extensions-section {
+  margin-bottom: 30px;
+}
+
+.extensions-section h3 {
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+  margin-bottom: 15px;
+}
+
+.extensions-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.extension-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.extension-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.extension-name {
+  font-weight: bold;
+  color: var(--text);
+  font-size: 1.1rem;
+}
+
+.extension-kind {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.extension-status {
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.extension-status.active {
+  color: var(--success);
+}
+
+.extension-status.inactive {
+  color: var(--text-dim);
+}
+
+.extension-desc {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  flex-grow: 1;
+}
+
+.extension-meta {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  display: flex;
+  gap: 10px;
+}
+
+.extension-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 5px;
+}
+
+.extension-actions button {
+  flex: 1;
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--accent);
+  color: #000;
+  font-weight: bold;
+}
+
+.extension-actions button.danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* Tools Table */
+.tools-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.tools-table th {
+  background: var(--bg-tertiary);
+  color: var(--accent);
+  padding: 12px;
+  text-align: left;
+  font-weight: bold;
+}
+
+.tools-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.tools-table tr:last-child td {
+  border-bottom: none;
+}
+
+.tool-name {
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-weight: bold;
+}
+
+.tool-desc {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+/* Extensions Tab */
+.extensions-container {
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.extensions-section {
+  margin-bottom: 30px;
+}
+
+.extensions-section h3 {
+  color: var(--accent);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+  margin-bottom: 15px;
+}
+
+.extensions-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.extension-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.extension-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.extension-name {
+  font-weight: bold;
+  color: var(--text);
+  font-size: 1.1rem;
+}
+
+.extension-kind {
+  background: var(--bg-tertiary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.extension-status {
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.extension-status.active {
+  color: var(--success);
+}
+
+.extension-status.inactive {
+  color: var(--text-dim);
+}
+
+.extension-desc {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  flex-grow: 1;
+}
+
+.extension-meta {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  display: flex;
+  gap: 10px;
+}
+
+.extension-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 5px;
+}
+
+.extension-actions button {
+  flex: 1;
+  padding: 8px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--accent);
+  color: #000;
+  font-weight: bold;
+}
+
+.extension-actions button.danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* Tools Table */
+.tools-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.tools-table th {
+  background: var(--bg-tertiary);
+  color: var(--accent);
+  padding: 12px;
+  text-align: left;
+  font-weight: bold;
+}
+
+.tools-table td {
+  padding: 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+}
+
+.tools-table tr:last-child td {
+  border-bottom: none;
+}
+
+.tool-name {
+  font-family: var(--font-mono);
+  color: var(--accent);
+  font-weight: bold;
+}
+
+.tool-desc {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}

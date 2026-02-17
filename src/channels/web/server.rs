@@ -200,6 +200,7 @@ pub async fn start_server(
         .route("/api/jobs/{id}/files/list", get(job_files_list_handler))
         .route("/api/jobs/{id}/files/read", get(job_files_read_handler))
         // Logs
+        .route("/api/logs", get(logs_list_handler))
         .route("/api/logs/events", get(logs_events_handler))
         // Extensions
         .route("/api/extensions", get(extensions_list_handler))
@@ -1889,6 +1890,66 @@ async fn extensions_remove_handler(
 }
 
 // --- Routines handlers ---
+
+// --- Logs ---
+
+#[derive(Debug, Deserialize)]
+pub struct LogsListRequest {
+    pub limit: Option<usize>,
+    pub level: Option<String>,
+    pub target: Option<String>,
+}
+
+async fn logs_list_handler(
+    Query(params): Query<LogsListRequest>,
+) -> Result<Json<LogListResponse>, StatusCode> {
+    let path = std::path::Path::new("server_log.txt");
+    if !path.exists() {
+        return Ok(Json(LogListResponse { logs: vec![] }));
+    }
+
+    let content = tokio::fs::read_to_string(path).await.map_err(|e| {
+        tracing::error!("Failed to read server logs: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let mut logs = Vec::new();
+    // Expected format: ISO_TIMESTAMP LEVEL target: message
+    // Example: 2026-02-16T11:15:30.123Z INFO ironclaw::main: Starting up
+    
+    for line in content.lines().rev() {
+        if logs.len() >= params.limit.unwrap_or(100) {
+            break;
+        }
+        
+        if line.trim().is_empty() { continue; }
+
+        let parts: Vec<&str> = line.splitn(4, ' ').collect();
+        if parts.len() < 4 { continue; }
+
+        let timestamp = parts[0].to_string();
+        let level = parts[1].to_string();
+        let target = parts[2].trim_end_matches(':').to_string();
+        let message = parts[3].to_string();
+
+        if let Some(ref l) = params.level {
+            if !level.eq_ignore_ascii_case(l) && l != "all" { continue; }
+        }
+        
+        if let Some(ref t) = params.target {
+            if !target.contains(t) { continue; }
+        }
+
+        logs.push(LogEntry {
+            timestamp,
+            level,
+            target,
+            message,
+        });
+    }
+
+    Ok(Json(LogListResponse { logs }))
+}
 
 async fn routines_list_handler(
     State(state): State<Arc<GatewayState>>,

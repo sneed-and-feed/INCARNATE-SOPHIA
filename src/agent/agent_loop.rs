@@ -732,6 +732,10 @@ impl Agent {
                 thread.complete_turn(&response);
                 self.persist_message(thread_id, "assistant", &response).await;
 
+                // Memory Safety Pruning: Keep only last 50 turns in memory.
+                // Historical turns are already safely in DB and merged via chat_history_handler.
+                thread.truncate_turns(50);
+
                 // Sovereign Memory Logging
                 if let Some(workspace) = self.workspace() {
                     let combined_context = format!("User: {}\nAssistant: {}", message.content, response);

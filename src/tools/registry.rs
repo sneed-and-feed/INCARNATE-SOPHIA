@@ -13,9 +13,9 @@ use crate::orchestrator::ContainerJobManager;
 use crate::safety::SafetyLayer;
 use crate::tools::builder::{BuildSoftwareTool, BuilderConfig, LlmSoftwareBuilder};
 use crate::tools::builtin::{
-    ApplyPatchTool, CancelJobTool, CreateJobTool, EchoTool, HelpTool, HttpTool, JobStatusTool, JsonTool,
+    ApplyPatchTool, CancelJobTool, CreateJobTool, EchoTool, EcommerceTool, HelpTool, HttpTool, JobStatusTool, JsonTool,
     ListDirTool, ListJobsTool, MemoryDeleteTool, MemoryReadTool, MemorySearchTool, MemoryTreeTool, MemoryWriteTool,
-    ReadFileTool, SearchTool, ShellTool, SneedTool, TimeTool, ToolActivateTool, ToolAuthTool, ToolInstallTool,
+    ReadFileTool, RestaurantTool, SearchTool, ShellTool, SneedTool, TaskRabbitTool, TimeTool, ToolActivateTool, ToolAuthTool, ToolInstallTool,
     ToolListTool, ToolRemoveTool, ToolSearchTool, WriteFileTool,
 };
 use crate::tools::tool::Tool;
@@ -121,6 +121,9 @@ impl ToolRegistry {
         self.register_sync(Arc::new(HttpTool::new()));
         self.register_sync(Arc::new(SearchTool::new()));
         self.register_sync(Arc::new(SneedTool::new()));
+        self.register_sync(Arc::new(EcommerceTool::new()));
+        self.register_sync(Arc::new(RestaurantTool::new()));
+        self.register_sync(Arc::new(TaskRabbitTool::new()));
 
         tracing::info!("Registered {} built-in tools", self.count());
     }

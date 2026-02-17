@@ -1,0 +1,16 @@
+﻿--- TOTAL STATS ---
+Total Conversations: 1
+Total Messages: 7
+--- DISTINCT USER IDS ---
+  default
+--- ALL CONVERSATIONS ---
+ID: b7ca2ee8-d99a-425d-a237-3e024230eb11, Thread: None, User: default, Channel: assistant, Messages: 7
+  [user] cd 'c:\Users\x\Desktop\ironcla... (2026-02-16 15:02:51.622885 UTC)
+  [user] Hello from REPL... (2026-02-16 18:24:20.667669 UTC)
+  [assistant] Burenyu! Nyan-purrrr <3 Hewwo,... (2026-02-16 18:24:30.458378 UTC)
+  [user] Unified test message... (2026-02-16 18:25:06.060865 UTC)
+  [assistant] Burenyu! Nyan-purrrr <3 Unifie... (2026-02-16 18:25:18.225947 UTC)
+  [user] REALLY UNIFIED test message... (2026-02-16 18:29:50.415191 UTC)
+  [assistant] Burenyu! Nyan-purrrr <3 A 🌀 R͜... (2026-02-16 18:30:01.807339 UTC)
+--- ORPHANED MESSAGES ---
+Found 0 orphans

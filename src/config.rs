@@ -1167,8 +1167,14 @@ impl ClaudeCodeConfig {
 
 fn optional_env(key: &str) -> Result<Option<String>, ConfigError> {
     match std::env::var(key) {
-        Ok(val) if val.is_empty() => Ok(None),
-        Ok(val) => Ok(Some(val)),
+        Ok(val) => {
+            let trimmed = val.trim();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(trimmed.to_string()))
+            }
+        }
         Err(std::env::VarError::NotPresent) => Ok(None),
         Err(e) => Err(ConfigError::ParseError(format!(
             "failed to read {key}: {e}"

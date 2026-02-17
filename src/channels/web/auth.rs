@@ -28,18 +28,23 @@ pub async fn auth_middleware(
     if let Some(auth_header) = headers.get("authorization")
         && let Ok(value) = auth_header.to_str()
         && let Some(token) = value.strip_prefix("Bearer ")
-        && bool::from(token.as_bytes().ct_eq(auth.token.as_bytes()))
     {
-        return next.run(request).await;
+        if bool::from(token.as_bytes().ct_eq(auth.token.as_bytes())) {
+            return next.run(request).await;
+        } else {
+            tracing::warn!("Auth header mismatch: provided='{}', expected='{}'", token, auth.token);
+        }
     }
 
     // Fall back to query parameter for SSE EventSource (constant-time comparison)
     if let Some(query) = request.uri().query() {
         for pair in query.split('&') {
-            if let Some(token) = pair.strip_prefix("token=")
-                && bool::from(token.as_bytes().ct_eq(auth.token.as_bytes()))
-            {
-                return next.run(request).await;
+            if let Some(token) = pair.strip_prefix("token=") {
+                if bool::from(token.as_bytes().ct_eq(auth.token.as_bytes())) {
+                    return next.run(request).await;
+                } else {
+                    tracing::warn!("Auth query mismatch: provided='{}', expected='{}'", token, auth.token);
+                }
             }
         }
     }

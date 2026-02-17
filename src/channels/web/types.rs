@@ -39,7 +39,7 @@ pub struct ThreadListResponse {
     pub active_thread: Option<Uuid>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct TurnInfo {
     pub turn_number: usize,
     pub user_input: String,
@@ -50,7 +50,7 @@ pub struct TurnInfo {
     pub tool_calls: Vec<ToolCallInfo>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ToolCallInfo {
     pub name: String,
     pub has_result: bool,
@@ -603,6 +603,21 @@ pub struct SettingsExportResponse {
 pub struct HealthResponse {
     pub status: &'static str,
     pub channel: &'static str,
+}
+
+// --- Logs ---
+
+#[derive(Debug, Serialize)]
+pub struct LogEntry {
+    pub timestamp: String,
+    pub level: String,
+    pub target: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LogListResponse {
+    pub logs: Vec<LogEntry>,
 }
 
 #[cfg(test)]

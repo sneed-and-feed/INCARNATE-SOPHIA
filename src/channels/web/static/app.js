@@ -652,6 +652,67 @@ function switchTab(tab) {
   if (tab === 'memory') loadMemoryTree();
   if (tab === 'jobs') loadJobs();
   if (tab === 'routines') loadRoutines();
+  if (tab === 'extensions') loadExtensions();
+  if (tab === 'logs') loadLogs();
+}
+
+// --- Logs ---
+
+function loadLogs() {
+  const filterLevel = document.getElementById('logs-level-filter').value;
+  const filterTarget = document.getElementById('logs-target-filter').value;
+
+  let url = '/api/logs?limit=100';
+  if (filterLevel !== 'all') url += '&level=' + encodeURIComponent(filterLevel);
+  if (filterTarget) url += '&target=' + encodeURIComponent(filterTarget);
+
+  apiFetch(url).then((data) => {
+    renderLogs(data.logs);
+  }).catch((err) => {
+    console.error('Failed to load logs:', err);
+    document.getElementById('logs-output').innerHTML = '<div class="error">Failed to load logs: ' + err.message + '</div>';
+  });
+}
+
+function renderLogs(logs) {
+  const container = document.getElementById('logs-output');
+  if (!container) return;
+
+  if (!logs || logs.length === 0) {
+    container.innerHTML = '<div class="empty-state">No logs found</div>';
+    return;
+  }
+
+  container.innerHTML = logs.map(log => {
+    const ts = new Date(log.timestamp).toLocaleTimeString();
+    const levelClass = 'log-' + log.level.toLowerCase();
+    return `<div class="log-entry ${levelClass}">
+        <span class="log-ts">[${ts}]</span>
+        <span class="log-level">${escapeHtml(log.level)}</span>
+        <span class="log-target">${escapeHtml(log.target)}</span>
+        <span class="log-msg">${escapeHtml(log.message)}</span>
+      </div>`;
+  }).join('');
+
+  if (document.getElementById('logs-autoscroll').checked) {
+    container.scrollTop = container.scrollHeight;
+  }
+}
+
+function clearLogs() {
+  document.getElementById('logs-output').innerHTML = '';
+}
+
+function toggleLogsPause() {
+  // Implementation for pause if needed, or just toggle button text
+  const btn = document.getElementById('logs-pause-btn');
+  if (btn.textContent === 'Pause') {
+    btn.textContent = 'Resume';
+    // Logic to stop polling/SSE update for logs
+  } else {
+    btn.textContent = 'Pause';
+    loadLogs();
+  }
 }
 
 function startGatewayStatusPolling() {
@@ -681,7 +742,91 @@ function formatDate(iso) {
   return iso ? new Date(iso).toLocaleString() : '-';
 }
 
+// --- Extensions ---
+
+function loadExtensions() {
+  Promise.all([
+    apiFetch('/api/extensions'),
+    apiFetch('/api/extensions/tools'),
+  ]).then(([extData, toolData]) => {
+    renderExtensionsList(extData.extensions);
+    renderToolsList(toolData.tools);
+  }).catch((err) => {
+    console.error('Failed to load extensions:', err);
+    document.getElementById('extensions-list').innerHTML = '<div class="empty-state">Failed to load extensions</div>';
+  });
+}
+
+function renderExtensionsList(extensions) {
+  const container = document.getElementById('extensions-list');
+  if (!container) return;
+
+  if (!extensions || extensions.length === 0) {
+    container.innerHTML = '<div class="empty-state">No extensions installed</div>';
+    return;
+  }
+
+  container.innerHTML = extensions.map(ext => `
+    <div class="extension-card">
+      <div class="extension-header">
+        <span class="extension-name">${escapeHtml(ext.name)}</span>
+        <span class="extension-kind badge">${escapeHtml(ext.kind)}</span>
+        <span class="extension-status ${ext.active ? 'active' : 'inactive'}">${ext.active ? 'Active' : 'Inactive'}</span>
+      </div>
+      <div class="extension-desc">${escapeHtml(ext.description || 'No description')}</div>
+      <div class="extension-meta">
+        ${ext.url ? `<span class="extension-url">${escapeHtml(ext.url)}</span>` : ''}
+        ${ext.authenticated ? '<span class="extension-auth">Authenticated</span>' : ''}
+      </div>
+      <div class="extension-actions">
+        ${!ext.active ? `<button onclick="activateExtension('${ext.name}')">Activate</button>` : ''}
+        <button class="danger" onclick="removeExtension('${ext.name}')">Remove</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function renderToolsList(tools) {
+  const tbody = document.getElementById('tools-tbody');
+  const empty = document.getElementById('tools-empty');
+  if (!tbody) return;
+
+  if (!tools || tools.length === 0) {
+    tbody.innerHTML = '';
+    if (empty) empty.style.display = 'block';
+    return;
+  }
+
+  if (empty) empty.style.display = 'none';
+  tbody.innerHTML = tools.map(tool => `
+    <tr>
+      <td class="tool-name">${escapeHtml(tool.name)}</td>
+      <td class="tool-desc">${escapeHtml(tool.description || '')}</td>
+    </tr>
+  `).join('');
+}
+
+function activateExtension(name) {
+  apiFetch('/api/extensions/' + encodeURIComponent(name) + '/activate', { method: 'POST' })
+    .then((res) => {
+      alert('Extension activated! 🚀');
+      loadExtensions();
+    })
+    .catch(err => alert('Activation failed: ' + err.message));
+}
+
+function removeExtension(name) {
+  if (!confirm('Are you sure you want to remove extension "' + name + '"?')) return;
+  apiFetch('/api/extensions/' + encodeURIComponent(name) + '/remove', { method: 'POST' })
+    .then(() => {
+      alert('Extension removed.');
+      loadExtensions();
+    })
+    .catch(err => alert('Removal failed: ' + err.message));
+}
+
 // --- Initialization ---
+
 
 document.getElementById('send-btn').onclick = sendMessage;
 document.getElementById('chat-input').onkeydown = (e) => {

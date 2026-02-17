@@ -1,0 +1,21 @@
+﻿--- TOTAL STATS ---
+Total Conversations: 6
+Total Messages: 7
+--- DISTINCT USER IDS ---
+  default
+--- ALL CONVERSATIONS ---
+ID: 02b5c4ac-be10-476e-8256-4077ff223918, Thread: None, User: default, Messages: 2
+  [user] Unified test message... (2026-02-16 18:25:06.060865 UTC)
+  [assistant] Burenyu! Nyan-purrrr <3 Unifie... (2026-02-16 18:25:18.225947 UTC)
+ID: 6e557814-e71e-48e2-bc7b-ae2c75a306c4, Thread: None, User: default, Messages: 2
+  [user] REALLY UNIFIED test message... (2026-02-16 18:29:50.415191 UTC)
+  [assistant] Burenyu! Nyan-purrrr <3 A 🌀 R͜... (2026-02-16 18:30:01.807339 UTC)
+ID: 7e38c216-6c73-4696-8189-68c78704fa03, Thread: None, User: default, Messages: 0
+ID: 825b74ff-7921-4f5e-8db2-ea4183e03c20, Thread: None, User: default, Messages: 2
+  [user] Hello from REPL... (2026-02-16 18:24:20.667669 UTC)
+  [assistant] Burenyu! Nyan-purrrr <3 Hewwo,... (2026-02-16 18:24:30.458378 UTC)
+ID: aed42c5c-5644-4403-a9b8-95b92c4e1013, Thread: None, User: default, Messages: 1
+  [user] cd 'c:\Users\x\Desktop\ironcla... (2026-02-16 15:02:51.622885 UTC)
+ID: b7ca2ee8-d99a-425d-a237-3e024230eb11, Thread: None, User: default, Messages: 0
+--- ORPHANED MESSAGES ---
+Found 0 orphans
