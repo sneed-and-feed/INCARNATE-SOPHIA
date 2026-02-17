@@ -421,7 +421,9 @@ function loadThreads() {
     }
 
     if (!currentThreadId) {
-      if (assistantThreadId) {
+      if (data.active_thread) {
+        switchThread(data.active_thread);
+      } else if (assistantThreadId) {
         switchToAssistant();
       } else if (threads.length > 0) {
         switchThread(threads[0].id);
