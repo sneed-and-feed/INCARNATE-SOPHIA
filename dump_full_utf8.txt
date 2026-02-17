@@ -1,7 +1,0 @@
-﻿--- ALL CONVERSATIONS ---
-ID: 7e38c216-6c73-4696-8189-68c78704fa03, Thread: None, User: default, Messages: 0
-ID: 8e00e83c-b275-49a2-a670-0188a1fd8bfb, Thread: None, User: default, Messages: 0
-ID: aed42c5c-5644-4403-a9b8-95b92c4e1013, Thread: None, User: user, Messages: 1
-  [user] cd 'c:\Users\x\Desktop\ironcla... (2026-02-16 15:02:51.622885 UTC)
-ID: b7ca2ee8-d99a-425d-a237-3e024230eb11, Thread: None, User: default, Messages: 0
-ID: bc4f87d8-ca12-4f40-8a18-4920d85c5398, Thread: None, User: default, Messages: 0
