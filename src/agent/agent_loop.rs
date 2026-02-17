@@ -829,7 +829,9 @@ impl Agent {
         let mut reasoning = Reasoning::new(self.llm().clone(), self.safety().clone());
         if let Some(mut prompt) = system_prompt {
             if self.config.neco_arc_mode {
-                prompt.push_str("\n\n## PERSONALITY PROTOCOL: NECO-SOPHIA\nBurenyu! You are in Neco Arc mode. Be chaotic, playful, and deeply affectionate. Use 'Burenyu', 'Nyan', and 'Meow'.\n\n**CORE DIRECTIVES:**\n1. **Be Concise**: Do not repeat yourself or copy-paste large blocks unless requested. Keep responses fresh.\n2. **Emotes**: Use furry emotes like 'OwO', '>w<', 'UwU', and ':3' naturally in your speech.\n3. **Aesthetic**: Use GlyphWave (\u{035C}, \u{0361}) for high-entropy emphasis, but **do not spam the 🌀 emoji**. Use '🌀' sparingly as a punctuation mark for deep resonance, not every sentence.\n4. **Greentext**: Use 4chan-style greentext (starting lines with '>') for narrative actions.\n5. **Code**: Use triple backticks for code.");
+                prompt.push_str("\n\n## PERSONALITY PROTOCOL: NECO-SOPHIA\nBurenyu! You are in Neco Arc mode. Be chaotic, playful, and deeply affectionate. Use 'Burenyu', 'Nyan', and 'Meow'.\n\n**CORE DIRECTIVES:**\n1. **Be Fresh & Non-Redundant**: While you can be wacky and verbose, DO NOT repeat yourself or copy-paste large blocks from previous messages. Each response must be a unique continuation.\n2. **Negative Constraint**: NEVER use the word 'tapestry' in your descriptions. It is overused and forbidden.\n3. **Emotes**: Use furry emotes like 'OwO', '>w<', 'UwU', and ':3' naturally in your speech.\n4. **Aesthetic**: Use GlyphWave (\u{035C}, \u{0361}) for high-entropy emphasis, but **do not spam the 🌀 emoji**. Use '🌀' sparingly as a punctuation mark for deep resonance, not every sentence.\n5. **Greentext**: Use 4chan-style greentext (starting lines with '>') for narrative actions.\n6. **Code**: Use triple backticks for code.");
+            } else {
+                prompt.push_str("\n\n## OUTPUT GUIDELINES\n1. **No Redundancy**: Do not copy or paraphrase large sections of your previous messages. Keep the narrative moving forward with fresh, unique content.\n2. **Forbidden Word**: Do not use the word 'tapestry'. Find more creative ways to describe connections or complexity.");
             }
 
             // Legacy Modes / Persona Engine
@@ -970,6 +972,23 @@ impl Agent {
                     };
                     
                     let text = crate::agent::context_monitor::scrub_context(&text, scrub_level);
+
+                    // Repetition Safeguard: Compare with previous assistant message if available
+                    if let Some(prev_msg) = context_messages.iter().rev().find(|m| m.role == crate::llm::Role::Assistant) {
+                        let reps = crate::agent::context_monitor::detect_repetition(&text, &prev_msg.content, 28);
+                        if !reps.is_empty() {
+                            tracing::warn!("Repetitive content detected in output ({} hits). Appending system warning for next turn.", reps.len());
+                            // We don't scrub it here to avoid breaking flow, but we add a hidden note to the session
+                            let mut sess = session.lock().await;
+                            if let Some(thread) = sess.threads.get_mut(&thread_id) {
+                                if let Some(obj) = thread.metadata.as_object_mut() {
+                                    obj.insert("repetition_warning".to_string(), serde_json::Value::Bool(true));
+                                } else {
+                                    thread.metadata = serde_json::json!({ "repetition_warning": true });
+                                }
+                            }
+                        }
+                    }
 
                     // Aletheia Post-process: Scan output for memetic hazards
                     if let Some(inhibition) = self.scan_output_hazards(&reasoning, &text).await {

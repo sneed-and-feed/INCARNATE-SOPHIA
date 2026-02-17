@@ -200,7 +200,7 @@ impl Thread {
             turns: Vec::new(),
             created_at: now,
             updated_at: now,
-            metadata: serde_json::Value::Null,
+            metadata: serde_json::json!({}),
             pending_approval: None,
             pending_auth: None,
         }

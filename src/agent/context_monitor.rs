@@ -222,6 +222,27 @@ pub fn scrub_context(text: &str, level: ScrubLevel) -> String {
     cleaned.trim().to_string()
 }
 
+/// Detects significant repetitive text blocks between current and previous strings.
+/// Returns a list of strings that appear in both, excluding short common phrases and emotes.
+pub fn detect_repetition(current: &str, previous: &str, min_len: usize) -> Vec<String> {
+    let mut repetitions = Vec::new();
+    let previous_lower = previous.to_lowercase();
+
+    // Iterate over lines. Ignore greentext (starts with '>') to allow for formatting fixes.
+    for line in current.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('>') || trimmed.len() < min_len {
+            continue;
+        }
+
+        if previous_lower.contains(&trimmed.to_lowercase()) {
+            repetitions.push(trimmed.to_string());
+        }
+    }
+
+    repetitions
+}
+
 /// Context size breakdown for reporting.
 #[derive(Debug, Clone)]
 pub struct ContextBreakdown {
@@ -348,5 +369,23 @@ mod tests {
         assert!(output.contains(">meow!"));
         assert!(output.contains(">be me"));
         assert!(output.contains(">>be nested"));
+    }
+
+    #[test]
+    fn test_detect_repetition() {
+        let prev_line = "IDENTITY_CORE: Coherent Nodes Ready.";
+        let cur_line = "IDENTITY_CORE: Coherent Nodes Ready.\nNew content.";
+        let reps = detect_repetition(cur_line, prev_line, 20);
+        assert!(!reps.is_empty());
+        assert_eq!(reps[0], "IDENTITY_CORE: Coherent Nodes Ready.");
+    }
+
+    #[test]
+    fn test_detect_repetition_with_greentext() {
+        let prev = "> Scanning the quantum substrate... 🌀\nHello user!";
+        let cur = "> Scanning the quantum substrate... 🌀\nHello again user!";
+        let reps = detect_repetition(cur, prev, 10);
+        // Should ignore the greentext line even if it's identical
+        assert!(reps.is_empty());
     }
 }

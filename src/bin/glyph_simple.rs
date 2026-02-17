@@ -22,7 +22,7 @@ fn glyphwave(text: &str) -> String {
     let mut result = String::new();
     let mut seed: u64 = 12345;
 
-    for (i, c) in text.chars().enumerate() {
+    for (_i, c) in text.chars().enumerate() {
         result.push(c);
         
         // Simple pseudo-random logic
