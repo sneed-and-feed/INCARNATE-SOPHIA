@@ -192,10 +192,11 @@ pub fn scrub_context(text: &str, level: ScrubLevel) -> String {
     }
     
     // 3. Remove excessive glyph artifacts at line starts
-    // ONLY removed in Clearance level.
-    if level == ScrubLevel::Clearance {
+    // Now applied at all levels to prevent "spamming" of 🌀 and other heavy artifacts.
+    {
         static RE_GLYPHS: OnceLock<Regex> = OnceLock::new();
-        let re = RE_GLYPHS.get_or_init(|| Regex::new(r"(?m)^[۩∿≋⟁💠🐾🦊🏮⛩️🧝✨🏹🌿🌲🏔️🍁🌧️🌊💎💿💰🕷️🎱]\s*").unwrap());
+        // Added: \u{1F300} (Cyclone/Swirl)
+        let re = RE_GLYPHS.get_or_init(|| Regex::new(r"(?m)^[🌀۩∿≋⟁💠🐾🦊🏮⛩️🧝✨🏹🌿🌲🏔️🍁🌧️🌊💎💿💰🕷️🎱]\s*").unwrap());
         cleaned = re.replace_all(&cleaned, "").to_string();
     }
     

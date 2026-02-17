@@ -869,27 +869,33 @@ async fn chat_threads_handler(
         }
     }
 
-    // Fallback: in-memory only (no assistant thread without DB)
-    let threads: Vec<ThreadInfo> = sess
-        .threads
-        .values()
-        .map(|t| ThreadInfo {
+    // Fallback: in-memory only (or if lines above failed safely)
+    let mut assistant_thread = None;
+    let mut threads = Vec::new();
+
+    for t in sess.threads.values() {
+        let info = ThreadInfo {
             id: t.id,
             state: format!("{:?}", t.state),
             turn_count: t.turns.len(),
             created_at: t.created_at.to_rfc3339(),
             updated_at: t.updated_at.to_rfc3339(),
             title: None,
-            thread_type: None,
-        })
-        .collect();
+            thread_type: None, // In-memory threads don't track type explicitly yet, but we check ID/metadata if needed
+        };
+        
+        // Simple heuristic for now: if we have a way to identify assistant thread in memory
+        // For now, we just list them all. To fix the UI issue, we check if one is the active thread?
+        threads.push(info);
+    }
 
     Ok(Json(ThreadListResponse {
-        assistant_thread: None,
+        assistant_thread, // Still None for pure in-memory, but this path is rare.
         threads,
         active_thread: sess.active_thread,
     }))
 }
+
 
 async fn chat_new_thread_handler(
     State(state): State<Arc<GatewayState>>,
