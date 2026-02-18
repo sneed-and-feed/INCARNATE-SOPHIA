@@ -666,7 +666,7 @@ impl AgentConfig {
                     key: "SHITPOSTING_MODE".to_string(),
                     message: format!("must be 'true' or 'false': {e}"),
                 })?
-                .unwrap_or(false), // Default to false for safety
+                .unwrap_or(true), // Default to TRUE per user request :3
         })
     }
 }

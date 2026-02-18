@@ -629,7 +629,7 @@ impl Agent {
         self.persist_message(thread_id, "user", content).await;
 
         // Auto-compact if needed BEFORE adding new turn
-        let mut current_chaos_load = 0.0;
+        let mut current_chaos_load: f32 = 0.0;
         {
             let mut sess = session.lock().await;
 
@@ -641,7 +641,7 @@ impl Agent {
                 // Decay old chaos slightly
                 sess.chaos_load *= 0.8; 
                 // Add new chaos
-                sess.chaos_load = (sess.chaos_load + new_chaos).clamp(0.0, 1.0);
+                sess.chaos_load = (sess.chaos_load + new_chaos).clamp(0.0f32, 1.0f32);
                 
                 tracing::debug!("Chaos Logic: Input='{}', Added={:.2}, Total={:.2}", 
                     input_text.chars().take(20).collect::<String>(), new_chaos, sess.chaos_load);

@@ -19,8 +19,10 @@ pub fn measure_chaos_potential(text: &str) -> f32 {
     if text.matches('!').count() > 2 { score += 0.1; }
 
     // 3. Brainrot / Shitpost Vocabulary
+    if lower.contains("skibidi") { score += 0.25; } // Benchmark for deranged humor
+
     let markers = [
-        "lol", "lmao", "kek", "based", "cringe", "skibidi", "gyatt", "riz", "ohio", 
+        "lol", "lmao", "kek", "based", "cringe", "gyatt", "riz", "ohio", 
         "sigma", "goated", "mid", "cap", "fr", "ong", "deadass", "bruh", "blud", 
         "yapping", "cook", "cooked", "locking in", "crash out", "fanum", "tax",
         "javanese", "poop", "unhinged", "deranged", "chaos", "schizo", "glowie"
