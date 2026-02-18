@@ -559,6 +559,8 @@ pub struct AgentConfig {
     pub ultra_immersion: bool,
     /// Whether Cosmic Milkshake mode (Sovereign/UwU blend) is enabled.
     pub cosmic_milkshake: bool,
+    /// Whether Shitposting Mode (Chaos Engine) is enabled.
+    pub shitposting_mode: bool,
 }
 
 impl AgentConfig {
@@ -657,6 +659,14 @@ impl AgentConfig {
                     message: format!("must be 'true' or 'false': {e}"),
                 })?
                 .unwrap_or(false),
+            shitposting_mode: optional_env("SHITPOSTING_MODE")?
+                .map(|s| s.parse())
+                .transpose()
+                .map_err(|e| ConfigError::InvalidValue {
+                    key: "SHITPOSTING_MODE".to_string(),
+                    message: format!("must be 'true' or 'false': {e}"),
+                })?
+                .unwrap_or(false), // Default to false for safety
         })
     }
 }

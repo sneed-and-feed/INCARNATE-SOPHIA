@@ -38,6 +38,9 @@ pub struct Session {
     /// Tools that have been auto-approved for this session ("always approve").
     #[serde(default)]
     pub auto_approved_tools: HashSet<String>,
+    /// Accumulated chaos/entropy load (0.0 to 1.0) for Shitposting Mode.
+    #[serde(default)]
+    pub chaos_load: f32,
 }
 
 impl Session {
@@ -53,6 +56,7 @@ impl Session {
             last_active_at: now,
             metadata: serde_json::Value::Null,
             auto_approved_tools: HashSet::new(),
+            chaos_load: 0.0,
         }
     }
 

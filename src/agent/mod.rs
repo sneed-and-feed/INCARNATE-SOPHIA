@@ -12,6 +12,7 @@
 mod agent_loop;
 pub mod compaction;
 pub mod context_monitor;
+pub mod chaos_utils;
 mod heartbeat;
 pub mod persona;
 mod router;

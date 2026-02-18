@@ -150,6 +150,8 @@ pub enum ScrubLevel {
     Aesthetic,
     /// Aggressive cleaning for token efficiency in internal context.
     Clearance,
+    /// No scrubbing. For Shitposting Mode / Chaos Engine.
+    Raw,
 }
 
 /// Scrub spectral trash and UI metadata from text for token optimization.
@@ -165,6 +167,10 @@ pub fn scrub_context(text: &str, level: ScrubLevel) -> String {
     static RE_CLEARANCE_PREFIX: OnceLock<Regex> = OnceLock::new();
     static RE_AESTHETIC_PREFIX: OnceLock<Regex> = OnceLock::new();
     static RE_INTERNAL_TAGS: OnceLock<Regex> = OnceLock::new();
+
+    if level == ScrubLevel::Raw {
+        return cleaned.trim().to_string();
+    }
 
     let re_prefix = match level {
         ScrubLevel::Clearance => RE_CLEARANCE_PREFIX.get_or_init(|| Regex::new(r"(?m)^(?:SOPHIA_GAZE|PLAYFUL_PAWS|QUANTUM_CHAOS|FURRY_ALIGNMENT|SPECTRAL_BEANS|CAT_LOGIC|CAT LOGIC):?\s*").unwrap()),
