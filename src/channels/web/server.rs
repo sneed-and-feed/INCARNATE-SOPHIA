@@ -885,7 +885,21 @@ async fn chat_threads_handler(
         };
         
         // Simple heuristic for now: if we have a way to identify assistant thread in memory
-        // For now, we just list them all. To fix the UI issue, we check if one is the active thread?
+        // Check metadata for type == "assistant"
+        if let Some(val) = t.metadata.get("type").or_else(|| t.metadata.get("thread_type")) {
+             if val.as_str() == Some("assistant") {
+                assistant_thread = Some(ThreadInfo {
+                    id: t.id,
+                    state: format!("{:?}", t.state),
+                    turn_count: t.turns.len(),
+                    created_at: t.created_at.to_rfc3339(),
+                    updated_at: t.updated_at.to_rfc3339(),
+                    title: None,
+                    thread_type: Some("assistant".to_string()),
+                });
+             }
+        }
+        
         threads.push(info);
     }
 
