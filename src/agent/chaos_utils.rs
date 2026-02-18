@@ -2,7 +2,7 @@
 /// Analyze text for "chaos potential" (entropy, brainrot, intensity).
 /// Returns a value between 0.0 and 1.0.
 pub fn measure_chaos_potential(text: &str) -> f32 {
-    let mut score = 0.0;
+    let mut score: f32 = 0.0;
     let lower = text.to_lowercase();
     
     // 1. Caps Density (Intensity)
@@ -19,7 +19,7 @@ pub fn measure_chaos_potential(text: &str) -> f32 {
     if text.matches('!').count() > 2 { score += 0.1; }
 
     // 3. Brainrot / Shitpost Vocabulary
-    if lower.contains("skibidi") { score += 0.25; } // Benchmark for deranged humor
+    // (User requested removing specific trigger for skibidi)
 
     let markers = [
         "lol", "lmao", "kek", "based", "cringe", "gyatt", "riz", "ohio", 

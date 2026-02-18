@@ -629,7 +629,6 @@ impl Agent {
         self.persist_message(thread_id, "user", content).await;
 
         // Auto-compact if needed BEFORE adding new turn
-        let mut current_chaos_load: f32 = 0.0;
         {
             let mut sess = session.lock().await;
 
