@@ -421,10 +421,11 @@ function loadThreads() {
     }
 
     if (!currentThreadId) {
-      if (data.active_thread) {
-        switchThread(data.active_thread);
-      } else if (assistantThreadId) {
+      // Priority 1: Assistant Thread (per user request)
+      if (assistantThreadId) {
         switchToAssistant();
+      } else if (data.active_thread) {
+        switchThread(data.active_thread);
       } else if (threads.length > 0) {
         switchThread(threads[0].id);
       }
