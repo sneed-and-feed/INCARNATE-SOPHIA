@@ -44,14 +44,20 @@ function authenticate() {
   }
 
   apiFetch('/api/chat/threads')
-    .then(() => {
+    .then((data) => {
       sessionStorage.setItem('ironclaw_token', token);
       document.getElementById('auth-screen').style.display = 'none';
       document.getElementById('app').style.display = 'flex';
       connectSSE();
-      connectLogSSE();
+      if (typeof connectLogSSE === 'function') connectLogSSE();
       startGatewayStatusPolling();
-      loadThreads();
+
+      if (data.assistant_thread) {
+        assistantThreadId = data.assistant_thread.id;
+        switchThread(assistantThreadId);
+      } else {
+        loadThreads();
+      }
       switchTab(currentTab);
     })
     .catch((err) => {
@@ -108,7 +114,25 @@ function connectSSE() {
   eventSource.addEventListener('response', (e) => {
     const data = JSON.parse(e.data);
     if (!isCurrentThread(data.thread_id)) return;
-    addMessage('assistant', data.content);
+
+    const container = document.getElementById('chat-messages');
+    const messages = container.querySelectorAll('.message.assistant');
+    let alreadyStreamed = false;
+    if (messages.length > 0) {
+      const last = messages[messages.length - 1];
+      const raw = last.getAttribute('data-raw') || '';
+      // If the last message is roughly the same, finalize it instead of duplicating
+      if (raw.length > 0 && data.content.startsWith(raw.substring(0, Math.min(raw.length, 20)))) {
+        alreadyStreamed = true;
+        last.setAttribute('data-raw', data.content);
+        last.innerHTML = renderMarkdown(data.content);
+      }
+    }
+
+    if (!alreadyStreamed) {
+      addMessage('assistant', data.content);
+    }
+
     setStatus('');
     enableChatInput();
     loadThreads();
@@ -270,7 +294,9 @@ function sanitizeRenderedHtml(html) {
 
 function renderMarkdown(text) {
   if (typeof marked !== 'undefined') {
-    let html = marked.parse(text);
+    // Escape all tildes to prevent both single and double-tilde strikethrough
+    let safeText = text.replace(/~/g, '\\~');
+    let html = marked.parse(safeText);
     html = sanitizeRenderedHtml(html);
     return processGlyphwave(html);
   }

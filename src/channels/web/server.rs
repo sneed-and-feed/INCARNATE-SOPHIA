@@ -721,11 +721,23 @@ async fn chat_history_handler(
             // In-memory turns that are not already in DB
             let mut new_turns = Vec::new();
             for mem_turn in in_memory_turns {
-                let already_in_db = final_turns.iter().any(|dt| {
-                    dt.user_input == mem_turn.user_input && dt.response == mem_turn.response
-                });
+                let mem_time = chrono::DateTime::parse_from_rfc3339(&mem_turn.started_at).unwrap_or_default();
+                let mut found_match = false;
                 
-                if !already_in_db {
+                for dt in final_turns.iter_mut().rev().take(5) {
+                    let dt_time = chrono::DateTime::parse_from_rfc3339(&dt.started_at).unwrap_or_default();
+                    let diff = (mem_time.timestamp_millis() - dt_time.timestamp_millis()).abs();
+                    
+                    if dt.user_input == mem_turn.user_input && diff < 2000 {
+                        dt.response = mem_turn.response.clone();
+                        dt.completed_at = mem_turn.completed_at.clone();
+                        dt.state = mem_turn.state.clone();
+                        found_match = true;
+                        break;
+                    }
+                }
+                
+                if !found_match {
                     new_turns.push(mem_turn);
                 }
             }
