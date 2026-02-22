@@ -464,7 +464,8 @@ function switchToAssistant() {
   switchThread(assistantThreadId);
 }
 
-function switchThread(threadId) {
+function switchThread(threadId, force = false) {
+  if (currentThreadId === threadId && !force) return;
   currentThreadId = threadId;
   document.getElementById('chat-messages').innerHTML = '';
   loadHistory();
