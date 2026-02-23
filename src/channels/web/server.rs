@@ -755,6 +755,13 @@ async fn chat_history_handler(
             }
             final_turns.extend(new_turns);
 
+            // Guarantee strict chronological order after merge to prevent UI inversion
+            final_turns.sort_by_key(|t| {
+                chrono::DateTime::parse_from_rfc3339(&t.started_at)
+                    .unwrap_or_default()
+                    .timestamp_millis()
+            });
+
             // Memory-safety check: If the merged list is too long, truncate from the OLD end
             // but keep at least 50 turns. The frontend will paginate anyway.
             if final_turns.len() > limit {
