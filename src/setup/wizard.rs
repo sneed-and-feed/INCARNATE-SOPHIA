@@ -406,6 +406,10 @@ impl SetupWizard {
                 "Llama 4 Maverick (default, fast)",
             ),
             (
+                "gemini-2.5-flash",
+                "Gemini 2.5 Flash (Sophia Native)",
+            ),
+            (
                 "anthropic::claude-sonnet-4-20250514",
                 "Claude Sonnet 4 (best quality)",
             ),
@@ -500,6 +504,7 @@ impl SetupWizard {
 
         let options = [
             "NEAR AI (uses same auth, no extra cost)",
+            "Google / Gemini (requires GOOGLE_API_KEY)",
             "OpenAI (requires API key)",
         ];
 
@@ -513,6 +518,17 @@ impl SetupWizard {
                 print_success("Embeddings enabled via NEAR AI");
             }
             1 => {
+                // Check if API key is set
+                if std::env::var("GOOGLE_API_KEY").is_err() {
+                    print_info("GOOGLE_API_KEY not set in environment.");
+                    print_info("Add it to your .env file or environment to enable embeddings.");
+                }
+                self.settings.embeddings.enabled = true;
+                self.settings.embeddings.provider = "google".to_string();
+                self.settings.embeddings.model = "gemini-embedding-001".to_string();
+                print_success("Embeddings configured for Google / Gemini");
+            }
+            2 => {
                 // Check if API key is set
                 if std::env::var("OPENAI_API_KEY").is_err() {
                     print_info("OPENAI_API_KEY not set in environment.");

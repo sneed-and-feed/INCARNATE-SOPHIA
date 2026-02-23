@@ -299,9 +299,10 @@ impl LlmConfig {
         // Google Config
         let google_api_key = optional_env("GOOGLE_API_KEY")?.map(SecretString::from);
         
-        // Priority: GOOGLE_MODEL > NEARAI_MODEL > default
+        // Priority: GOOGLE_MODEL > NEARAI_MODEL > settings > default
         let google_model = optional_env("GOOGLE_MODEL")?
-            .or_else(|| optional_env("NEARAI_MODEL").ok().flatten()) 
+            .or_else(|| optional_env("NEARAI_MODEL").ok().flatten())
+            .or_else(|| crate::settings::Settings::load().selected_model)
             .unwrap_or_else(|| "gemini-2.5-flash".to_string());
 
         let google = GoogleConfig {

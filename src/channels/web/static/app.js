@@ -116,16 +116,15 @@ function connectSSE() {
     if (!isCurrentThread(data.thread_id)) return;
 
     const container = document.getElementById('chat-messages');
-    const messages = container.querySelectorAll('.message.assistant');
     let alreadyStreamed = false;
-    if (messages.length > 0) {
-      const last = messages[messages.length - 1];
-      const raw = last.getAttribute('data-raw') || '';
+    const lastElement = container.lastElementChild;
+    if (lastElement && lastElement.classList.contains('assistant')) {
+      const raw = lastElement.getAttribute('data-raw') || '';
       // If the last message is roughly the same, finalize it instead of duplicating
       if (raw.length > 0 && data.content.startsWith(raw.substring(0, Math.min(raw.length, 20)))) {
         alreadyStreamed = true;
-        last.setAttribute('data-raw', data.content);
-        last.innerHTML = renderMarkdown(data.content);
+        lastElement.setAttribute('data-raw', data.content);
+        lastElement.innerHTML = renderMarkdown(data.content);
       }
     }
 
@@ -319,12 +318,11 @@ function addMessage(role, content) {
 
 function appendToLastAssistant(chunk) {
   const container = document.getElementById('chat-messages');
-  const messages = container.querySelectorAll('.message.assistant');
-  if (messages.length > 0) {
-    const last = messages[messages.length - 1];
-    const raw = (last.getAttribute('data-raw') || '') + chunk;
-    last.setAttribute('data-raw', raw);
-    last.innerHTML = renderMarkdown(raw);
+  const lastElement = container.lastElementChild;
+  if (lastElement && lastElement.classList.contains('assistant')) {
+    const raw = (lastElement.getAttribute('data-raw') || '') + chunk;
+    lastElement.setAttribute('data-raw', raw);
+    lastElement.innerHTML = renderMarkdown(raw);
     container.scrollTop = container.scrollHeight;
   } else {
     addMessage('assistant', chunk);

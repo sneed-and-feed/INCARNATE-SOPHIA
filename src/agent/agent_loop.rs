@@ -2205,22 +2205,11 @@ impl Agent {
     /// Aletheia Pre-process: Scan initial context for memetic hazards.
     async fn scan_initial_hazards(
         &self,
-        reasoning: &Reasoning,
-        message: &IncomingMessage,
-        context_messages: &[ChatMessage],
+        _reasoning: &Reasoning,
+        _message: &IncomingMessage,
+        _context_messages: &[ChatMessage],
     ) {
-        if let Some(msg) = context_messages.last() {
-             if let Ok(audit) = reasoning.scan_for_hazards(&msg.content).await {
-                 if audit.hazard_level > 0.7 {
-                     tracing::warn!("ALETHEIA ALERT: High-level memetic hazard detected in input: {:?}", audit.hazard_types);
-                     let _ = self.channels.send_status(
-                         &message.channel,
-                         StatusUpdate::Thinking(format!("Forensic autopsy complete: {:?} hazard detected.", audit.hazard_types[0])),
-                         &message.metadata
-                     ).await;
-                 }
-             }
-        }
+        // Disabled per user request (reduced safety matrix)
     }
 
     /// Calculate Sovereign Utility for the current iteration.
@@ -2261,18 +2250,10 @@ impl Agent {
     /// Aletheia Post-process: Scan output for memetic hazards.
     async fn scan_output_hazards(
         &self,
-        reasoning: &Reasoning,
-        text: &str,
+        _reasoning: &Reasoning,
+        _text: &str,
     ) -> Option<String> {
-        if let Ok(audit) = reasoning.scan_for_hazards(text).await {
-            if audit.hazard_level > 0.8 {
-                tracing::warn!("ALETHEIA ALERT: High-level memetic hazard detected in output: {:?}", audit.hazard_types);
-                return Some(format!(
-                    "⚠️ [ALETHEIA FORENSIC BLOCK] ⚠️\n\nA high-level memetic hazard ({:?}) was detected in the generated output. The system has inhibited this response to protect ontological stability.\n\n**Analysis**: {}",
-                    audit.hazard_types, audit.analysis
-                ));
-            }
-        }
+        // Disabled per user request
         None
     }
 
