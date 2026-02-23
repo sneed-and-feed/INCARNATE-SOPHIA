@@ -709,10 +709,6 @@ async fn chat_history_handler(
             // Merge logic:
             // We want to return a seamless list.
             // If in_memory_turns has turns, we append them to db_turns, but only if they are not already there.
-            // Simple heuristic: if the user_input and response match the LAST turn from DB, we might skip it.
-            // Even better: since we persist every complete turn, the DB usually has everything.
-            // The only thing memory has that DB might not is a TURN IN PROGRESS.
-            
             let db_count = db_turns.len();
             let mem_count = in_memory_turns.len();
 
@@ -720,24 +716,40 @@ async fn chat_history_handler(
             
             // In-memory turns that are not already in DB
             let mut new_turns = Vec::new();
+            
+            let db_newest_time = final_turns
+                .last()
+                .and_then(|t| chrono::DateTime::parse_from_rfc3339(&t.started_at).ok())
+                .unwrap_or_default();
+
             for mem_turn in in_memory_turns {
                 let mem_time = chrono::DateTime::parse_from_rfc3339(&mem_turn.started_at).unwrap_or_default();
                 let mut found_match = false;
                 
-                for dt in final_turns.iter_mut().rev().take(5) {
+                for dt in final_turns.iter_mut().rev().take(10) {
                     let dt_time = chrono::DateTime::parse_from_rfc3339(&dt.started_at).unwrap_or_default();
                     let diff = (mem_time.timestamp_millis() - dt_time.timestamp_millis()).abs();
                     
-                    if dt.user_input == mem_turn.user_input && diff < 2000 {
-                        dt.response = mem_turn.response.clone();
+                    // Increased tolerance to 120 seconds to account for DB save latency/clock differences
+                    if dt.user_input == mem_turn.user_input && diff < 120_000 {
+                        // Only override if the memory turn has a response and the DB turn doesn't,
+                        // or if the memory turn is actively streaming (state changes).
+                        if dt.response.is_none() || mem_turn.response.is_some() {
+                            dt.response = mem_turn.response.clone();
+                        }
                         dt.completed_at = mem_turn.completed_at.clone();
                         dt.state = mem_turn.state.clone();
+                        if dt.tool_calls.is_empty() && !mem_turn.tool_calls.is_empty() {
+                            dt.tool_calls = mem_turn.tool_calls.clone();
+                        }
                         found_match = true;
                         break;
                     }
                 }
                 
-                if !found_match {
+                // Only append as a entirely new turn if it didn't match AND it's roughly newer than the newest DB turn.
+                // Subtract a small buffer (5 seconds) to handle slight chronological overlaps.
+                if !found_match && mem_time.timestamp_millis() > db_newest_time.timestamp_millis() - 5000 {
                     new_turns.push(mem_turn);
                 }
             }
