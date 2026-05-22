@@ -6,7 +6,7 @@ This document outlines the operational capabilities of **Sophia v5.3.0**, markin
 
 ## 1. The Sneed Engine Substrate (Rust Logic Core)
 
-**Module**: [sneed_engine.rs](file:///c:/Users/x/Desktop/ironclaw-main/src/sneed_engine.rs)
+**Module**: [sneed_engine.rs](../src/sneed_engine.rs)
 
 The system operates fundamentally on the **Sneed Engine**, a high-performance computational substrate written in Rust. This core replaces the legacy `hyper_sovereign.py` and `pleroma_engine.py` logic.
 
@@ -18,7 +18,7 @@ The system operates fundamentally on the **Sneed Engine**, a high-performance co
 
 ## 2. Retrocausal Prescience Loop
 
-**Module**: [sneed_engine.rs](file:///c:/Users/x/Desktop/ironclaw-main/src/sneed_engine.rs)
+**Module**: [sneed_engine.rs](../src/sneed_engine.rs)
 
 Sophia 5.3 introduces the **Prescience Loop**, a functional implementation of Tachyonic Translation.
 
@@ -27,7 +27,7 @@ Sophia 5.3 introduces the **Prescience Loop**, a functional implementation of Ta
 
 ## 3. Sovereign Signal Optimization (ASOE)
 
-**Module**: [sneed_engine.rs](file:///c:/Users/x/Desktop/ironclaw-main/src/sneed_engine.rs) / [agent/agent_loop.rs](file:///c:/Users/x/Desktop/ironclaw-main/src/agent/agent_loop.rs)
+**Module**: [sneed_engine.rs](../src/sneed_engine.rs) / [agent/agent_loop.rs](../src/agent/agent_loop.rs)
 
 The **Adaptive Signal Optimization Engine** is now implemented via the `SovereignOptimizer`.
 
@@ -36,7 +36,7 @@ The **Adaptive Signal Optimization Engine** is now implemented via the `Sovereig
 
 ## 4. Lethe-style Metabolic Memory
 
-**Module**: [agent/context_monitor.rs](file:///c:/Users/x/Desktop/ironclaw-main/src/agent/context_monitor.rs) / [agent/compaction.rs](file:///c:/Users/x/Desktop/ironclaw-main/src/agent/compaction.rs)
+**Module**: [agent/context_monitor.rs](../src/agent/context_monitor.rs) / [agent/compaction.rs](../src/agent/compaction.rs)
 
 A Rust-optimized memory architecture where data has a lifecycle and scrubbing costs.
 
@@ -45,7 +45,7 @@ A Rust-optimized memory architecture where data has a lifecycle and scrubbing co
 
 ## 5. Integrating Sovereignty (Tools & Search)
 
-**Module**: [tools/builtin/search.rs](file:///c:/Users/x/Desktop/ironclaw-main/src/tools/builtin/search.rs)
+**Module**: [tools/builtin/search.rs](../src/tools/builtin/search.rs)
 
 The system possesses "hands" to interact with the consensus reality.
 

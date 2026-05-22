@@ -4,9 +4,9 @@ use std::env;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    dotenvy::from_path(std::path::Path::new("C:/Users/x/Desktop/ironclaw-main/.env")).ok();
+    dotenvy::dotenv().ok();
     // Fallback?
-    let api_key = env::var("GOOGLE_API_KEY").expect("GOOGLE_API_KEY not set (checked .env in desktop folder)");
+    let api_key = env::var("GOOGLE_API_KEY").expect("GOOGLE_API_KEY not set");
     let client = Client::new();
 
     println!("1. Listing Models (v1)...");
