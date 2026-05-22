@@ -205,6 +205,28 @@ impl Store {
         Ok(id)
     }
 
+    /// Delete a message from a conversation.
+    pub async fn delete_conversation_message(&self, id: Uuid) -> Result<(), DatabaseError> {
+        let conn = self.conn().await?;
+        conn.execute(
+            "DELETE FROM conversation_messages WHERE id = $1",
+            &[&id],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Delete all messages from a conversation.
+    pub async fn delete_conversation_messages(&self, conversation_id: Uuid) -> Result<(), DatabaseError> {
+        let conn = self.conn().await?;
+        conn.execute(
+            "DELETE FROM conversation_messages WHERE conversation_id = $1",
+            &[&conversation_id],
+        )
+        .await?;
+        Ok(())
+    }
+
     // ==================== Jobs ====================
 
     /// Save a job context to the database.
@@ -1070,6 +1092,10 @@ impl Database for Store {
             &[&id, &user_id],
         ).await?;
         Ok(result > 0)
+    }
+
+    async fn delete_conversation_messages(&self, conversation_id: Uuid) -> Result<(), DatabaseError> {
+        Store::delete_conversation_messages(self, conversation_id).await
     }
 
     async fn save_sandbox_job(&self, job: &SandboxJobRecord) -> Result<(), DatabaseError> {

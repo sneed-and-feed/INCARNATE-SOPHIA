@@ -778,19 +778,19 @@ mod tests {
         // Multi-byte character: '│' (E2 94 82 in UTF-8, 3 bytes)
         let text = "detection of injection attempts │ Content sanitization";
         
-        // "detection of injection attempts " is 31 bytes
-        // '│' is 3 bytes (starts at 31, ends at 34)
+        // "detection of injection attempts " is 32 bytes
+        // '│' is 3 bytes (starts at 32, ends at 35)
         
-        // Truncate at 32 (inside '│')
-        let mut end = 32;
+        // Truncate at 33 (inside '│')
+        let mut end = 33;
         while end > 0 && !text.is_char_boundary(end) {
             end -= 1;
         }
         let truncated = &text[..end];
         assert_eq!(truncated, "detection of injection attempts ");
         
-        // Truncate at 34 (at boundary)
-        let mut end2 = 34;
+        // Truncate at 35 (at boundary)
+        let mut end2 = 35;
         while end2 > 0 && !text.is_char_boundary(end2) {
             end2 -= 1;
         }

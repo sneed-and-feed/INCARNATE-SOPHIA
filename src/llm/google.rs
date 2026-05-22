@@ -1,7 +1,7 @@
-//! Google Gemini Chat Completions API provider implementation.
+//! Google Gemini Native API provider implementation.
 //!
-//! This provider uses the Google AI Studio / Google Cloud OpenAI-compatible 
-//! chat completions API with API key authentication.
+//! This provider uses the native Google Gemini API (v1beta/models/{model}:generateContent)
+//! and supports Context Caching and File Uploads.
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -9,16 +9,15 @@ use reqwest::Client;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use secrecy::ExposeSecret;
-use serde::{Deserialize, Serialize};
-
+use serde_json::json;
 use crate::config::GoogleConfig;
 use crate::error::LlmError;
 use crate::llm::provider::{
     ChatMessage, CompletionRequest, CompletionResponse, FinishReason, LlmProvider, Role, ToolCall,
-    ToolCompletionRequest, ToolCompletionResponse,
+    ToolCompletionRequest, ToolCompletionResponse, ToolDefinition,
 };
 
-/// Google Gemini Chat Completions API provider.
+/// Google Gemini API provider.
 pub struct GoogleGeminiProvider {
     client: Client,
     config: GoogleConfig,
@@ -41,14 +40,6 @@ impl GoogleGeminiProvider {
         Ok(Self { client, config })
     }
 
-    fn api_url(&self, path: &str) -> String {
-        format!(
-            "{}/{}",
-            self.config.base_url.trim_end_matches('/'),
-            path.trim_start_matches('/')
-        )
-    }
-
     fn api_key(&self) -> String {
         self.config
             .api_key
@@ -57,76 +48,101 @@ impl GoogleGeminiProvider {
             .unwrap_or_default()
     }
 
-    /// Send a request to the chat completions API.
-    async fn send_request<T: Serialize, R: for<'de> Deserialize<'de>>(
-        &self,
-        body: &T,
-    ) -> Result<R, LlmError> {
-        let url = self.api_url("chat/completions");
+    /// Convert generic ChatMessage to Gemini Part
+    fn to_gemini_content(msg: &ChatMessage) -> serde_json::Value {
+        let role = match msg.role {
+            Role::System => "user", // Gemini system instructions are separate, but if inline it's user
+            Role::User => "user",
+            Role::Assistant => "model",
+            Role::Tool => "function", // Tool response
+        };
 
-        tracing::debug!("Sending request to Google Gemini: {}", url);
+        if msg.role == Role::Tool {
+            let func_name = msg.name.as_deref().unwrap_or("unknown");
+            let response_val = serde_json::from_str(&msg.content)
+                .unwrap_or_else(|_| json!({"result": msg.content}));
+            
+            return json!({
+                "role": "function",
+                "parts": [{
+                    "functionResponse": {
+                        "name": func_name,
+                        "response": response_val
+                    }
+                }]
+            });
+        }
+
+        if let Some(ref tool_calls) = msg.tool_calls {
+            let parts: Vec<serde_json::Value> = tool_calls.iter().map(|tc| {
+                json!({
+                    "functionCall": {
+                        "name": tc.name,
+                        "args": tc.arguments
+                    }
+                })
+            }).collect();
+            return json!({
+                "role": "model",
+                "parts": parts
+            });
+        }
+
+        let mut parts = Vec::new();
+        if !msg.content.is_empty() {
+            parts.push(json!({"text": msg.content}));
+        }
+        if let Some(uri) = &msg.file_uri {
+            let mime = msg.mime_type.as_deref().unwrap_or("text/plain");
+            parts.push(json!({
+                "fileData": {
+                    "fileUri": uri,
+                    "mimeType": mime
+                }
+            }));
+        }
+        
+        // Fallback: Gemini requires at least one part in the content block
+        if parts.is_empty() {
+            parts.push(json!({"text": ""}));
+        }
+
+        json!({
+            "role": role,
+            "parts": parts
+        })
+    }
+
+    async fn send_generate_content(&self, body: serde_json::Value) -> Result<serde_json::Value, LlmError> {
+        // Assume base_url is https://generativelanguage.googleapis.com
+        let base_url = "https://generativelanguage.googleapis.com";
+        let url = format!("{}/v1beta/models/{}:generateContent?key={}", base_url, self.config.model, self.api_key());
+
+        tracing::debug!("Sending request to Google Gemini generateContent");
 
         let response = self
             .client
             .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key()))
-            .header("x-goog-api-key", self.api_key())
             .header("Content-Type", "application/json")
-            .json(body)
+            .json(&body)
             .send()
             .await
-            .map_err(|e| {
-                tracing::error!("Google Gemini request failed: {}", e);
-                LlmError::RequestFailed {
-                    provider: "google".to_string(),
-                    reason: e.to_string(),
-                }
+            .map_err(|e| LlmError::RequestFailed {
+                provider: "google".to_string(),
+                reason: e.to_string(),
             })?;
 
         let status = response.status();
-        let headers = response.headers().clone();
         let response_text = response.text().await.unwrap_or_default();
-
-        tracing::debug!("Google Gemini response status: {}", status);
-        tracing::debug!("Google Gemini response body: {}", response_text);
 
         if !status.is_success() {
             if status.as_u16() == 401 {
-                return Err(LlmError::AuthFailed {
-                    provider: "google".to_string(),
-                });
+                return Err(LlmError::AuthFailed { provider: "google".to_string() });
             }
             if status.as_u16() == 429 {
-                let mut retry_after = headers
-                    .get("retry-after")
-                    .and_then(|h| h.to_str().ok())
-                    .and_then(|s| s.parse::<u64>().ok())
-                    .map(Duration::from_secs);
-
-                // If header is missing, try parsing the body for quota reset info
-                if retry_after.is_none() {
-                    if let Ok(_error_json) = serde_json::from_str::<serde_json::Value>(&response_text) {
-                        // Google often returns "RETRY_AFTER_LATER" or similar in metadata
-                        // or a message like "Resource has been exhausted (e.g. check quota)."
-                        tracing::warn!("Google quota/rate limit detected: {}", response_text);
-                        
-                        // Check for common Google error patterns
-                        if response_text.contains("RESOURCE_EXHAUSTED") || response_text.contains("quota") {
-                             // Default to 60s if we can't find a specific one
-                             retry_after = Some(Duration::from_secs(60));
-                        }
-                    }
-                }
-
                 return Err(LlmError::RateLimited {
                     provider: "google".to_string(),
-                    retry_after,
-                });
-            }
-            if status.as_u16() == 404 {
-                return Err(LlmError::InvalidResponse {
-                    provider: "google".to_string(),
-                    reason: format!("Model not found (404). Verify GOOGLE_MODEL '{}' is valid for your API key. Error: {}", self.config.model, response_text),
+                    retry_after: Some(Duration::from_secs(60)),
                 });
             }
             return Err(LlmError::RequestFailed {
@@ -140,68 +156,87 @@ impl GoogleGeminiProvider {
             reason: format!("JSON parse error: {}. Raw: {}", e, response_text),
         })
     }
+
+    fn parse_generate_response(&self, json: serde_json::Value) -> Result<(String, Option<String>, Vec<ToolCall>, FinishReason, u32, u32), LlmError> {
+        let candidates = json.get("candidates").and_then(|c| c.as_array());
+        if candidates.is_none() || candidates.unwrap().is_empty() {
+            let prompt_feedback = json.get("promptFeedback");
+            tracing::error!("Gemini safety block: {:?}", prompt_feedback);
+            return Err(LlmError::InvalidResponse {
+                provider: "google".to_string(),
+                reason: "[Content Blocked by Safety Filter]".to_string(),
+            });
+        }
+
+        let candidate = &candidates.unwrap()[0];
+        let content = candidate.get("content");
+        let finish_reason_str = candidate.get("finishReason").and_then(|s| s.as_str()).unwrap_or("");
+        
+        let mut text = String::new();
+        let mut tool_calls = Vec::new();
+
+        if let Some(content) = content {
+            if let Some(parts) = content.get("parts").and_then(|p| p.as_array()) {
+                for part in parts {
+                    if let Some(t) = part.get("text").and_then(|t| t.as_str()) {
+                        text.push_str(t);
+                    }
+                    if let Some(fc) = part.get("functionCall") {
+                        if let Some(name) = fc.get("name").and_then(|n| n.as_str()) {
+                            let args = fc.get("args").cloned().unwrap_or(json!({}));
+                            tool_calls.push(ToolCall {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                name: name.to_string(),
+                                arguments: args,
+                                thought_signature: None,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        let usage = json.get("usageMetadata");
+        let input_tokens = usage.and_then(|u| u.get("promptTokenCount")).and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let output_tokens = usage.and_then(|u| u.get("candidatesTokenCount")).and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+
+        let finish_reason = match finish_reason_str {
+            "STOP" => FinishReason::Stop,
+            "MAX_TOKENS" => FinishReason::Length,
+            "SAFETY" => FinishReason::ContentFilter,
+            "RECITATION" => FinishReason::ContentFilter,
+            "OTHER" => FinishReason::Unknown,
+            _ => {
+                if !tool_calls.is_empty() { FinishReason::ToolUse } else { FinishReason::Stop }
+            }
+        };
+
+        Ok((text, None, tool_calls, finish_reason, input_tokens, output_tokens))
+    }
 }
 
 #[async_trait]
 impl LlmProvider for GoogleGeminiProvider {
     async fn complete(&self, req: CompletionRequest) -> Result<CompletionResponse, LlmError> {
-        let messages: Vec<ChatCompletionMessage> =
-            req.messages.into_iter().map(|m| m.into()).collect();
+        let contents: Vec<serde_json::Value> = req.messages.iter().map(Self::to_gemini_content).collect();
+        
+        let mut body = json!({
+            "contents": contents,
+        });
 
-        let request = ChatCompletionRequest {
-            model: self.config.model.clone(),
-            messages,
-            temperature: req.temperature,
-            max_tokens: req.max_tokens,
-            tools: None,
-            tool_choice: None,
-        };
+        if let Some(cache_id) = req.cache_id {
+            body.as_object_mut().unwrap().insert("cachedContent".to_string(), json!(cache_id));
+        }
 
-        let response: ChatCompletionResponse = self.send_request(&request).await?;
-
-        let choice =
-            response
-                .choices
-                .into_iter()
-                .next()
-                .ok_or_else(|| LlmError::InvalidResponse {
-                    provider: "google".to_string(),
-                    reason: "No choices in response".to_string(),
-                })?;
-
-        let (content, thought, tool_calls) = if let Some(msg) = choice.message {
-            (
-                msg.content.unwrap_or_default(),
-                msg.thought,
-                msg.tool_calls.unwrap_or_default(),
-            )
-        } else {
-            (
-                "[Content Blocked by Safety Filter]".to_string(),
-                None,
-                Vec::new(),
-            )
-        };
-
-        let fr_str = choice.finish_reason.as_deref().unwrap_or("");
-        let finish_reason = if fr_str.contains("stop") {
-            FinishReason::Stop
-        } else if fr_str.contains("length") {
-            FinishReason::Length
-        } else if fr_str.contains("tool_calls") || fr_str.contains("function_call") || !tool_calls.is_empty() {
-            FinishReason::ToolUse
-        } else if fr_str.contains("content_filter") {
-            FinishReason::ContentFilter
-        } else {
-            FinishReason::Unknown
-        };
+        let response_json = self.send_generate_content(body).await?;
+        let (content, thought, _, finish_reason, input_tokens, output_tokens) = self.parse_generate_response(response_json)?;
 
         Ok(CompletionResponse {
             content,
             thought,
             finish_reason,
-            input_tokens: response.usage.prompt_tokens,
-            output_tokens: response.usage.completion_tokens,
+            input_tokens,
+            output_tokens,
         })
     }
 
@@ -209,83 +244,38 @@ impl LlmProvider for GoogleGeminiProvider {
         &self,
         req: ToolCompletionRequest,
     ) -> Result<ToolCompletionResponse, LlmError> {
-        let messages: Vec<ChatCompletionMessage> =
-            req.messages.into_iter().map(|m| m.into()).collect();
-
-        let tools: Vec<ChatCompletionTool> = req
-            .tools
-            .into_iter()
-            .map(|t| ChatCompletionTool {
-                tool_type: "function".to_string(),
-                function: ChatCompletionFunction {
-                    name: t.name,
-                    description: Some(t.description),
-                    parameters: Some(t.parameters),
-                },
+        let contents: Vec<serde_json::Value> = req.messages.iter().map(Self::to_gemini_content).collect();
+        
+        let tools_json: Vec<serde_json::Value> = req.tools.into_iter().map(|t| {
+            json!({
+                "functionDeclarations": [{
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters
+                }]
             })
-            .collect();
+        }).collect();
 
-        let request = ChatCompletionRequest {
-            model: self.config.model.clone(),
-            messages,
-            temperature: req.temperature,
-            max_tokens: req.max_tokens,
-            tools: if tools.is_empty() { None } else { Some(tools) },
-            tool_choice: req.tool_choice,
-        };
+        let mut body = json!({
+            "contents": contents,
+        });
 
-        let response: ChatCompletionResponse = self.send_request(&request).await?;
-
-        let choice =
-            response
-                .choices
-                .into_iter()
-                .next()
-                .ok_or_else(|| LlmError::InvalidResponse {
-                    provider: "google".to_string(),
-                    reason: "No choices in response".to_string(),
-                })?;
-
-        let (content, thought, tool_calls_raw) = if let Some(msg) = choice.message {
-            (msg.content, msg.thought, msg.tool_calls.unwrap_or_default())
+        if let Some(cache_id) = req.cache_id {
+            body.as_object_mut().unwrap().insert("cachedContent".to_string(), json!(cache_id));
         } else {
-            (Some("[Content Blocked by Safety Filter]".to_string()), None, Vec::new())
-        };
+            body.as_object_mut().unwrap().insert("tools".to_string(), json!(tools_json));
+        }
 
-        let tool_calls: Vec<ToolCall> = tool_calls_raw
-            .into_iter()
-            .map(|tc| {
-                let arguments = serde_json::from_str(&tc.function.arguments)
-                    .unwrap_or(serde_json::Value::Object(Default::default()));
-                ToolCall {
-                    id: tc.id,
-                    name: tc.function.name,
-                    arguments,
-                    thought_signature: tc.extra_content.and_then(|e| e.google.thought_signature),
-                }
-            })
-            .collect();
-
-        let fr_str = choice.finish_reason.as_deref().unwrap_or("");
-        let finish_reason = if fr_str.contains("stop") {
-            FinishReason::Stop
-        } else if fr_str.contains("length") {
-            FinishReason::Length
-        } else if fr_str.contains("tool_calls") || fr_str.contains("function_call") || !tool_calls.is_empty() {
-            FinishReason::ToolUse
-        } else if fr_str.contains("content_filter") {
-            FinishReason::ContentFilter
-        } else {
-            FinishReason::Unknown
-        };
+        let response_json = self.send_generate_content(body).await?;
+        let (content, thought, tool_calls, finish_reason, input_tokens, output_tokens) = self.parse_generate_response(response_json)?;
 
         Ok(ToolCompletionResponse {
-            content,
+            content: if content.is_empty() { None } else { Some(content) },
             tool_calls,
             thought,
             finish_reason,
-            input_tokens: response.usage.prompt_tokens,
-            output_tokens: response.usage.completion_tokens,
+            input_tokens,
+            output_tokens,
         })
     }
 
@@ -294,156 +284,147 @@ impl LlmProvider for GoogleGeminiProvider {
     }
 
     fn cost_per_token(&self) -> (Decimal, Decimal) {
-        // Free tier for many Gemini models, or very low cost
         (dec!(0.000000), dec!(0.000000))
     }
 
     async fn list_models(&self) -> Result<Vec<String>, LlmError> {
-        // Direct listing not always available on the OpenAI compat endpoint
         Ok(vec![self.config.model.clone()])
     }
-}
 
-// OpenAI-compatible Chat Completions API types (re-implemented for local use)
+    async fn create_cache(
+        &self,
+        ttl_seconds: i32,
+        messages: Vec<ChatMessage>,
+        system_instruction: Option<String>,
+        tools: Vec<ToolDefinition>,
+    ) -> Result<String, LlmError> {
+        let base_url = "https://generativelanguage.googleapis.com";
+        let url = format!("{}/v1beta/cachedContents?key={}", base_url, self.api_key());
 
-#[derive(Debug, Serialize)]
-struct ChatCompletionRequest {
-    model: String,
-    messages: Vec<ChatCompletionMessage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    temperature: Option<f32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    max_tokens: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tools: Option<Vec<ChatCompletionTool>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_choice: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct ChatCompletionMessage {
-    role: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_call_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool_calls: Option<Vec<ChatCompletionToolCall>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thought: Option<String>,
-}
-
-impl From<ChatMessage> for ChatCompletionMessage {
-    fn from(msg: ChatMessage) -> Self {
-        let role = match msg.role {
-            Role::System => "system",
-            Role::User => "user",
-            Role::Assistant => "assistant",
-            Role::Tool => "tool",
-        };
-        let tool_calls = msg.tool_calls.map(|calls| {
-            calls
-                .into_iter()
-                .map(|tc| ChatCompletionToolCall {
-                    id: tc.id.clone(),
-                    call_type: "function".to_string(),
-                    function: ChatCompletionToolCallFunction {
-                        name: tc.name.clone(),
-                        arguments: tc.arguments.to_string(),
-                    },
-                    extra_content: tc.thought_signature.map(|sig| ExtraContent {
-                        google: GoogleExtraContent {
-                            thought_signature: Some(sig),
-                        },
-                    }),
-                })
-                .collect()
+        let contents: Vec<serde_json::Value> = messages.iter().map(Self::to_gemini_content).collect();
+        
+        let mut body = json!({
+            "model": format!("models/{}", self.config.model),
+            "contents": contents,
+            "ttl": format!("{}s", ttl_seconds)
         });
-        Self {
-            role: role.to_string(),
-            content: Some(msg.content),
-            tool_call_id: msg.tool_call_id,
-            name: msg.name,
-            tool_calls,
-            thought: msg.thought,
+
+        if let Some(sys_instr) = system_instruction {
+            body.as_object_mut().unwrap().insert("systemInstruction".to_string(), json!({
+                "parts": [{"text": sys_instr}]
+            }));
+        }
+
+        if !tools.is_empty() {
+            let tools_json: Vec<serde_json::Value> = tools.into_iter().map(|t| {
+                json!({
+                    "functionDeclarations": [{
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters
+                    }]
+                })
+            }).collect();
+            body.as_object_mut().unwrap().insert("tools".to_string(), json!(tools_json));
+        }
+
+        let response = self
+            .client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LlmError::RequestFailed {
+                provider: "google".to_string(),
+                reason: e.to_string(),
+            })?;
+
+        let status = response.status();
+        let response_text = response.text().await.unwrap_or_default();
+
+        if !status.is_success() {
+            return Err(LlmError::RequestFailed {
+                provider: "google".to_string(),
+                reason: format!("Cache creation failed: HTTP {}: {}", status, response_text),
+            });
+        }
+
+        let json_resp: serde_json::Value = serde_json::from_str(&response_text).unwrap_or(json!({}));
+        if let Some(name) = json_resp.get("name").and_then(|n| n.as_str()) {
+            Ok(name.to_string())
+        } else {
+            Err(LlmError::InvalidResponse {
+                provider: "google".to_string(),
+                reason: format!("No name field in cache response: {}", response_text),
+            })
         }
     }
-}
 
-#[derive(Debug, Serialize)]
-struct ChatCompletionTool {
-    #[serde(rename = "type")]
-    tool_type: String,
-    function: ChatCompletionFunction,
-}
+    async fn delete_cache(&self, cache_id: &str) -> Result<(), LlmError> {
+        let base_url = "https://generativelanguage.googleapis.com";
+        let url = format!("{}/v1beta/{}?key={}", base_url, cache_id, self.api_key());
 
-#[derive(Debug, Serialize)]
-struct ChatCompletionFunction {
-    name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    parameters: Option<serde_json::Value>,
-}
+        let response = self
+            .client
+            .delete(&url)
+            .send()
+            .await
+            .map_err(|e| LlmError::RequestFailed {
+                provider: "google".to_string(),
+                reason: e.to_string(),
+            })?;
 
-#[derive(Debug, Deserialize)]
-struct ChatCompletionResponse {
-    #[allow(dead_code)]
-    id: String,
-    choices: Vec<ChatCompletionChoice>,
-    usage: ChatCompletionUsage,
-}
+        if !response.status().is_success() {
+            tracing::warn!("Failed to delete cache {}: {}", cache_id, response.status());
+        }
+        Ok(())
+    }
 
-#[derive(Debug, Deserialize)]
-struct ChatCompletionChoice {
-    message: Option<ChatCompletionResponseMessage>,
-    finish_reason: Option<String>,
-}
+    async fn upload_file(&self, path: &std::path::Path, mime_type: &str) -> Result<String, LlmError> {
+        let base_url = "https://generativelanguage.googleapis.com";
+        let url = format!("{}/upload/v1beta/files?key={}", base_url, self.api_key());
 
-#[derive(Debug, Deserialize)]
-struct ChatCompletionResponseMessage {
-    #[allow(dead_code)]
-    role: String,
-    content: Option<String>,
-    tool_calls: Option<Vec<ChatCompletionToolCall>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thought: Option<String>,
-}
+        let file_data = tokio::fs::read(path).await.map_err(|e| LlmError::RequestFailed {
+            provider: "google".to_string(),
+            reason: format!("Failed to read file: {}", e),
+        })?;
+        let file_size = file_data.len();
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ChatCompletionToolCall {
-    id: String,
-    #[serde(rename = "type")]
-    #[allow(dead_code)]
-    call_type: String,
-    function: ChatCompletionToolCallFunction,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    extra_content: Option<ExtraContent>,
-}
+        let response = self
+            .client
+            .post(&url)
+            .header("X-Goog-Upload-Protocol", "raw")
+            .header("X-Goog-Upload-Command", "upload, finalize")
+            .header("X-Goog-Upload-Header-Content-Length", file_size.to_string())
+            .header("X-Goog-Upload-Header-Content-Type", mime_type)
+            .header("Content-Type", mime_type)
+            .body(file_data)
+            .send()
+            .await
+            .map_err(|e| LlmError::RequestFailed {
+                provider: "google".to_string(),
+                reason: e.to_string(),
+            })?;
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ExtraContent {
-    google: GoogleExtraContent,
-}
+        let status = response.status();
+        let response_text = response.text().await.unwrap_or_default();
 
-#[derive(Debug, Serialize, Deserialize)]
-struct GoogleExtraContent {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    thought_signature: Option<String>,
-}
+        if !status.is_success() {
+            return Err(LlmError::RequestFailed {
+                provider: "google".to_string(),
+                reason: format!("File upload failed: HTTP {}: {}", status, response_text),
+            });
+        }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct ChatCompletionToolCallFunction {
-    name: String,
-    arguments: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatCompletionUsage {
-    prompt_tokens: u32,
-    completion_tokens: u32,
-    #[allow(dead_code)]
-    total_tokens: u32,
+        let json_resp: serde_json::Value = serde_json::from_str(&response_text).unwrap_or(json!({}));
+        if let Some(uri) = json_resp.get("file").and_then(|f| f.get("uri")).and_then(|u| u.as_str()) {
+            Ok(uri.to_string())
+        } else {
+            Err(LlmError::InvalidResponse {
+                provider: "google".to_string(),
+                reason: format!("No file URI in upload response: {}", response_text),
+            })
+        }
+    }
 }

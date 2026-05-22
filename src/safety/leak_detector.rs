@@ -615,7 +615,7 @@ mod tests {
     #[test]
     fn test_scan_and_clean_blocks() {
         let detector = LeakDetector::new();
-        let content = "sk-proj-test1234567890abcdefghij";
+        let content = "sk-proj-test1234567890abcdefghij12345678";
 
         let result = detector.scan_and_clean(content);
         assert!(result.is_err());
@@ -701,7 +701,7 @@ mod tests {
         let detector = LeakDetector::new();
 
         // Attempt to exfiltrate in request body
-        let body = b"{\"stolen\": \"sk-proj-test1234567890abcdefghij\"}";
+        let body = b"{\"stolen\": \"sk-proj-test1234567890abcdefghij12345678\"}";
         let result = detector.scan_http_request("https://api.example.com/webhook", &[], Some(body));
         assert!(result.is_err());
     }

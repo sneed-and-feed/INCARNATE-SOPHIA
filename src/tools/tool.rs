@@ -52,6 +52,9 @@ pub struct ToolOutput {
     /// Raw output before sanitization (for debugging).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub raw: Option<String>,
+    /// Optional file attachment (URI, MIME type) to append to the context.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_attachment: Option<(String, String)>,
 }
 
 impl ToolOutput {
@@ -62,6 +65,7 @@ impl ToolOutput {
             cost: None,
             duration,
             raw: None,
+            file_attachment: None,
         }
     }
 
@@ -72,6 +76,7 @@ impl ToolOutput {
             cost: None,
             duration,
             raw: None,
+            file_attachment: None,
         }
     }
 
@@ -84,6 +89,12 @@ impl ToolOutput {
     /// Set the raw output.
     pub fn with_raw(mut self, raw: impl Into<String>) -> Self {
         self.raw = Some(raw.into());
+        self
+    }
+
+    /// Attach a file to the output.
+    pub fn with_file_attachment(mut self, uri: String, mime: String) -> Self {
+        self.file_attachment = Some((uri, mime));
         self
     }
 }

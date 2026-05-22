@@ -247,6 +247,8 @@ pub fn convert_messages(messages: &[OpenAiMessage]) -> Result<Vec<ChatMessage>, 
                     name: m.name.clone(),
                     tool_calls: None,
                     thought: None,
+                    file_uri: None,
+                    mime_type: None,
                 }),
             }
         })

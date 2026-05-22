@@ -35,6 +35,12 @@ pub struct ChatMessage {
     /// Internal reasoning/thought from the model (e.g. Gemini Thinking, OpenAI o1).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thought: Option<String>,
+    /// Optional file URI to attach to the message (for multimodal requests).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_uri: Option<String>,
+    /// Optional mime type for the file_uri.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
 }
 
 impl ChatMessage {
@@ -47,6 +53,8 @@ impl ChatMessage {
             name: None,
             tool_calls: None,
             thought: None,
+            file_uri: None,
+            mime_type: None,
         }
     }
 
@@ -59,6 +67,8 @@ impl ChatMessage {
             name: None,
             tool_calls: None,
             thought: None,
+            file_uri: None,
+            mime_type: None,
         }
     }
 
@@ -71,6 +81,8 @@ impl ChatMessage {
             name: None,
             tool_calls: None,
             thought: None,
+            file_uri: None,
+            mime_type: None,
         }
     }
 
@@ -93,7 +105,16 @@ impl ChatMessage {
                 Some(tool_calls)
             },
             thought: None,
+            file_uri: None,
+            mime_type: None,
         }
+    }
+
+    /// Add a file attachment to this message.
+    pub fn with_file(mut self, uri: String, mime: String) -> Self {
+        self.file_uri = Some(uri);
+        self.mime_type = Some(mime);
+        self
     }
 
     /// Create a tool result message.
@@ -109,6 +130,8 @@ impl ChatMessage {
             name: Some(name.into()),
             tool_calls: None,
             thought: None,
+            file_uri: None,
+            mime_type: None,
         }
     }
 }
@@ -120,6 +143,7 @@ pub struct CompletionRequest {
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
     pub stop_sequences: Option<Vec<String>>,
+    pub cache_id: Option<String>,
 }
 
 impl CompletionRequest {
@@ -130,6 +154,7 @@ impl CompletionRequest {
             max_tokens: None,
             temperature: None,
             stop_sequences: None,
+            cache_id: None,
         }
     }
 
@@ -142,6 +167,12 @@ impl CompletionRequest {
     /// Set temperature.
     pub fn with_temperature(mut self, temperature: f32) -> Self {
         self.temperature = Some(temperature);
+        self
+    }
+
+    /// Set cache ID.
+    pub fn with_cache_id(mut self, cache_id: impl Into<String>) -> Self {
+        self.cache_id = Some(cache_id.into());
         self
     }
 }
@@ -203,6 +234,7 @@ pub struct ToolCompletionRequest {
     pub temperature: Option<f32>,
     /// How to handle tool use: "auto", "required", or "none".
     pub tool_choice: Option<String>,
+    pub cache_id: Option<String>,
 }
 
 impl ToolCompletionRequest {
@@ -214,6 +246,7 @@ impl ToolCompletionRequest {
             max_tokens: None,
             temperature: None,
             tool_choice: None,
+            cache_id: None,
         }
     }
 
@@ -232,6 +265,12 @@ impl ToolCompletionRequest {
     /// Set tool choice mode.
     pub fn with_tool_choice(mut self, choice: impl Into<String>) -> Self {
         self.tool_choice = Some(choice.into());
+        self
+    }
+
+    /// Set cache ID.
+    pub fn with_cache_id(mut self, cache_id: impl Into<String>) -> Self {
+        self.cache_id = Some(cache_id.into());
         self
     }
 }
@@ -271,6 +310,37 @@ pub trait LlmProvider: Send + Sync {
     /// Default implementation returns empty list.
     async fn list_models(&self) -> Result<Vec<String>, LlmError> {
         Ok(Vec::new())
+    }
+
+    /// Create a cached context block with a TTL.
+    /// Default implementation returns an error (not supported).
+    async fn create_cache(
+        &self,
+        _ttl_seconds: i32,
+        _messages: Vec<ChatMessage>,
+        _system_instruction: Option<String>,
+        _tools: Vec<ToolDefinition>,
+    ) -> Result<String, LlmError> {
+        Err(LlmError::RequestFailed {
+            provider: self.model_name().to_string(),
+            reason: "Caching not supported by this provider".to_string(),
+        })
+    }
+
+    /// Delete a cached context block.
+    /// Default implementation does nothing.
+    async fn delete_cache(&self, _cache_id: &str) -> Result<(), LlmError> {
+        Ok(())
+    }
+
+    /// Upload a file to the provider's file API.
+    /// Returns the URI to be used in context.
+    /// Default implementation returns an error.
+    async fn upload_file(&self, _path: &std::path::Path, _mime_type: &str) -> Result<String, LlmError> {
+        Err(LlmError::RequestFailed {
+            provider: self.model_name().to_string(),
+            reason: "File uploads not supported by this provider".to_string(),
+        })
     }
 
     /// Calculate cost for a completion.

@@ -10,6 +10,7 @@
 //! - Context compaction for long conversations
 
 mod agent_loop;
+pub mod cache_manager;
 pub mod compaction;
 pub mod context_monitor;
 pub mod chaos_utils;

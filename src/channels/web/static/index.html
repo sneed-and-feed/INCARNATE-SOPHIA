@@ -46,6 +46,7 @@
       <div class="thread-sidebar" id="thread-sidebar">
         <div class="thread-sidebar-header">
           <span>Threads</span>
+          <button class="thread-new-btn" onclick="rollbackChat()" title="Rollback Chat">⏪</button>
           <button class="thread-new-btn" onclick="createNewThread()" title="New thread (Ctrl/Cmd+N)">+</button>
         </div>
         <div class="assistant-item" id="assistant-thread" onclick="switchToAssistant()">
@@ -61,6 +62,8 @@
         <div class="chat-messages" id="chat-messages"></div>
         <div class="chat-status" id="chat-status"></div>
         <div class="chat-input">
+          <input type="file" id="file-upload" style="display:none" onchange="handleFileSelect(this)">
+          <button id="upload-btn" onclick="document.getElementById('file-upload').click()" title="Upload file for Multimodal RAG">📎</button>
           <textarea id="chat-input" placeholder="Type a message..." rows="1"></textarea>
           <button id="send-btn" onclick="sendMessage()">Send</button>
         </div>

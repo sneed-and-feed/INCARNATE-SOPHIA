@@ -111,7 +111,6 @@ impl Tool for HttpTool {
                 },
                 "headers": {
                     "type": "object",
-                    "additionalProperties": { "type": "string" },
                     "description": "HTTP headers to include"
                 },
                 "body": {

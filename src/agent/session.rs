@@ -305,6 +305,14 @@ impl Thread {
     pub fn messages(&self) -> Vec<ChatMessage> {
         let mut messages = Vec::new();
         for turn in &self.turns {
+            if turn.state == TurnState::Failed || turn.state == TurnState::Interrupted {
+                continue;
+            }
+            if let Some(ref response) = turn.response {
+                if response.contains("[Content Blocked by Safety Filter]") {
+                    continue;
+                }
+            }
             messages.push(ChatMessage::user(&turn.user_input));
             if let Some(ref response) = turn.response {
                 messages.push(ChatMessage::assistant(response));

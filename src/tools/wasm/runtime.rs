@@ -247,8 +247,7 @@ fn extract_tool_schema(
     // For now, return a minimal schema that accepts any object.
     Ok(serde_json::json!({
         "type": "object",
-        "properties": {},
-        "additionalProperties": true
+        "properties": {}
     }))
 }
 

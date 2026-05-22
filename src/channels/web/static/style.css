@@ -431,6 +431,28 @@ body::before {
   font-family: var(--font-ui);
 }
 
+#upload-btn {
+  background: var(--bg-tertiary);
+  color: var(--accent);
+  border: 1px solid var(--text-dim);
+  border-radius: var(--radius);
+  padding: 10px;
+  width: 44px;
+  height: 44px;
+  cursor: pointer;
+  font-size: 1.2rem;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#upload-btn:hover {
+  background: var(--bg);
+  border-color: var(--accent);
+  transform: scale(1.1);
+}
+
 .message {
   max-width: 80%;
   padding: 15px;

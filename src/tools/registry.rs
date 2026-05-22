@@ -14,7 +14,7 @@ use crate::safety::SafetyLayer;
 use crate::tools::builder::{BuildSoftwareTool, BuilderConfig, LlmSoftwareBuilder};
 use crate::tools::builtin::{
     ApplyPatchTool, CancelJobTool, CreateJobTool, EchoTool, EcommerceTool, HelpTool, HttpTool, JobStatusTool, JsonTool,
-    ListDirTool, ListJobsTool, MemoryDeleteTool, MemoryReadTool, MemorySearchTool, MemoryTreeTool, MemoryWriteTool,
+    ListDirTool, ListJobsTool, MemoryDeleteTool, MemoryReadTool, MemorySearchTool, MemoryTreeTool, MemoryWriteTool, MemoryUploadTool,
     ReadFileTool, RestaurantTool, SearchTool, ShellTool, SneedTool, TaskRabbitTool, TimeTool, ToolActivateTool, ToolAuthTool, ToolInstallTool,
     ToolListTool, ToolRemoveTool, ToolSearchTool, WriteFileTool,
 };
@@ -147,14 +147,15 @@ impl ToolRegistry {
     ///
     /// Memory tools require a workspace for persistence. Call this after
     /// `register_builtin_tools()` if you have a workspace available.
-    pub fn register_memory_tools(&self, workspace: Arc<Workspace>) {
+    pub fn register_memory_tools(&self, workspace: Arc<Workspace>, llm: Arc<dyn LlmProvider>) {
         self.register_sync(Arc::new(MemorySearchTool::new(Arc::clone(&workspace))));
         self.register_sync(Arc::new(MemoryWriteTool::new(Arc::clone(&workspace))));
         self.register_sync(Arc::new(MemoryReadTool::new(Arc::clone(&workspace))));
         self.register_sync(Arc::new(MemoryTreeTool::new(Arc::clone(&workspace))));
         self.register_sync(Arc::new(MemoryDeleteTool::new(workspace)));
+        self.register_sync(Arc::new(MemoryUploadTool::new(llm)));
 
-        tracing::info!("Registered 5 memory tools");
+        tracing::info!("Registered 6 memory tools");
     }
 
     /// Register job management tools.

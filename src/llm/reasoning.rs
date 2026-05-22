@@ -21,6 +21,8 @@ pub struct ReasoningContext {
     pub job_description: Option<String>,
     /// Current state description.
     pub current_state: Option<String>,
+    /// Cache ID to use for the request.
+    pub cache_id: Option<String>,
 }
 
 impl ReasoningContext {
@@ -31,6 +33,7 @@ impl ReasoningContext {
             available_tools: Vec::new(),
             job_description: None,
             current_state: None,
+            cache_id: None,
         }
     }
 
@@ -55,6 +58,12 @@ impl ReasoningContext {
     /// Set job description.
     pub fn with_job(mut self, description: impl Into<String>) -> Self {
         self.job_description = Some(description.into());
+        self
+    }
+
+    /// Set cache ID.
+    pub fn with_cache_id(mut self, cache_id: Option<String>) -> Self {
+        self.cache_id = cache_id;
         self
     }
 }
@@ -165,6 +174,12 @@ impl Reasoning {
             .with_max_tokens(2048)
             .with_temperature(0.3);
 
+        let request = if let Some(ref cid) = context.cache_id {
+            request.with_cache_id(cid.clone())
+        } else {
+            request
+        };
+
         let response = self.llm.complete(request).await?;
 
         // Parse the plan from the response
@@ -196,6 +211,12 @@ impl Reasoning {
             ToolCompletionRequest::new(context.messages.clone(), context.available_tools.clone())
                 .with_max_tokens(1024)
                 .with_tool_choice("auto");
+
+        let request = if let Some(ref cid) = context.cache_id {
+            request.with_cache_id(cid.clone())
+        } else {
+            request
+        };
 
         let response = self.llm.complete_with_tools(request).await?;
 
@@ -303,6 +324,19 @@ Respond in JSON format:
                 .with_temperature(0.7)
                 .with_tool_choice("auto");
 
+            let request = if let Some(ref cid) = context.cache_id {
+                // If using cache, we assume the system prompt is already cached
+                // So we omit it to avoid duplication or errors
+                let messages_without_system = request.messages.into_iter().skip(1).collect();
+                ToolCompletionRequest::new(messages_without_system, context.available_tools.clone())
+                    .with_max_tokens(4096)
+                    .with_temperature(0.7)
+                    .with_tool_choice("auto")
+                    .with_cache_id(cid.clone())
+            } else {
+                request
+            };
+
             let response = self.llm.complete_with_tools(request).await?;
 
             // If there were tool calls, return them for execution
@@ -320,6 +354,16 @@ Respond in JSON format:
             let request = CompletionRequest::new(messages)
                 .with_max_tokens(4096)
                 .with_temperature(0.7);
+
+            let request = if let Some(ref cid) = context.cache_id {
+                let messages_without_system = request.messages.into_iter().skip(1).collect();
+                CompletionRequest::new(messages_without_system)
+                    .with_max_tokens(4096)
+                    .with_temperature(0.7)
+                    .with_cache_id(cid.clone())
+            } else {
+                request
+            };
 
             let response = self.llm.complete(request).await?;
             Ok(RespondResult::Text(clean_response(&response.content)))

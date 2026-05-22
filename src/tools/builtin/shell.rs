@@ -481,8 +481,14 @@ mod tests {
         let tool = ShellTool::new().with_timeout(Duration::from_millis(100));
         let ctx = JobContext::default();
 
+        let cmd = if cfg!(target_os = "windows") {
+            "ping 127.0.0.1 -n 11 > nul"
+        } else {
+            "sleep 10"
+        };
+
         let result = tool
-            .execute(serde_json::json!({"command": "sleep 10"}), &ctx)
+            .execute(serde_json::json!({"command": cmd}), &ctx)
             .await;
 
         assert!(matches!(result, Err(ToolError::Timeout(_))));

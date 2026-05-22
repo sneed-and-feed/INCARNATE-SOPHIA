@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use axum::{
     Json, Router,
-    extract::{DefaultBodyLimit, Path, Query, State, WebSocketUpgrade},
+    extract::{DefaultBodyLimit, Path, Query, State, WebSocketUpgrade, Multipart},
     http::{StatusCode, header},
     middleware,
     response::{
@@ -19,6 +19,7 @@ use axum::{
     routing::{get, post},
 };
 use serde::Deserialize;
+use serde_json::json;
 use tokio::sync::{mpsc, oneshot};
 use tokio_stream::StreamExt;
 use tower_http::cors::{AllowHeaders, CorsLayer};
@@ -177,12 +178,14 @@ pub async fn start_server(
         .route("/api/chat/auth-token", post(chat_auth_token_handler))
         .route("/api/chat/auth-cancel", post(chat_auth_cancel_handler))
         .route("/api/chat/events", get(chat_events_handler))
+        .route("/api/chat/upload", post(chat_upload_handler))
         .route("/api/chat/ws", get(chat_ws_handler))
         .route("/api/chat/history", get(chat_history_handler))
         .route("/api/chat/threads", get(chat_threads_handler))
         .route("/api/chat/thread/new", post(chat_new_thread_handler))
         .route("/api/chat/thread/rename", post(chat_rename_thread_handler))
         .route("/api/chat/thread/delete", post(chat_delete_thread_handler))
+        .route("/api/chat/rollback", post(chat_rollback_handler))
         // Memory
         .route("/api/memory/tree", get(memory_tree_handler))
         .route("/api/memory/list", get(memory_list_handler))
@@ -543,6 +546,51 @@ async fn chat_events_handler(
         StatusCode::SERVICE_UNAVAILABLE,
         "Too many connections".to_string(),
     ))
+}
+
+async fn chat_upload_handler(
+    State(state): State<Arc<GatewayState>>,
+    mut multipart: Multipart,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let mut uploaded_files = Vec::new();
+
+    while let Some(field) = multipart.next_field().await.map_err(|e| {
+        (StatusCode::BAD_REQUEST, format!("Multipart error: {}", e))
+    })? {
+        let name = field.name().unwrap_or("file").to_string();
+        let file_name = field.file_name().unwrap_or("upload.bin").to_string();
+        let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
+        let data = field.bytes().await.map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read field: {}", e))
+        })?;
+
+        // Save to local uploads directory
+        let upload_dir = std::path::Path::new("uploads");
+        tokio::fs::create_dir_all(upload_dir).await.map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create uploads dir: {}", e))
+        })?;
+
+        let file_path = upload_dir.join(&file_name);
+        tokio::fs::write(&file_path, data).await.map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write file: {}", e))
+        })?;
+
+        let absolute_path = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(&file_path);
+
+        uploaded_files.push(json!({
+            "name": name,
+            "file_name": file_name,
+            "content_type": content_type,
+            "path": absolute_path.to_string_lossy().to_string()
+        }));
+    }
+
+    Ok(Json(json!({
+        "status": "success",
+        "files": uploaded_files
+    })))
 }
 
 async fn chat_ws_handler(
@@ -1042,6 +1090,51 @@ async fn chat_rename_thread_handler(
         .update_conversation_title(req.thread_id, &req.title)
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+
+    Ok(StatusCode::OK)
+}
+
+#[derive(Deserialize)]
+pub struct RollbackRequest {
+    pub thread_id: Uuid,
+    pub timestamp: String,
+    pub date: String,
+}
+
+async fn chat_rollback_handler(
+    State(state): State<Arc<GatewayState>>,
+    Json(req): Json<RollbackRequest>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let store = state.store.as_ref().ok_or((
+        StatusCode::SERVICE_UNAVAILABLE,
+        "Database not available".to_string(),
+    ))?;
+
+    // Verify ownership
+    let owned = store
+        .conversation_belongs_to_user(req.thread_id, &state.user_id)
+        .await
+        .unwrap_or(false);
+    if !owned {
+        return Err((StatusCode::NOT_FOUND, "Thread not found".to_string()));
+    }
+
+    // Delete messages in thread
+    store
+        .delete_conversation_messages(req.thread_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete messages: {}", e)))?;
+
+    // Truncate daily memory file
+    if let Some(workspace) = state.workspace.as_ref() {
+        let path = format!("daily/{}.md", req.date);
+        if let Ok(doc) = workspace.read(&path).await {
+            if let Some(idx) = doc.content.find(&req.timestamp) {
+                let new_content = &doc.content[..idx];
+                let _ = workspace.write(&path, new_content).await;
+            }
+        }
+    }
 
     Ok(StatusCode::OK)
 }

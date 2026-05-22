@@ -190,6 +190,6 @@ mod tests {
 
         // Reset to default
         settings.reset("agent.name").unwrap();
-        assert_eq!(settings.agent.name, "ironclaw");
+        assert_eq!(settings.agent.name, "sophia");
     }
 }

@@ -249,6 +249,43 @@ function enableChatInput() {
   }
 }
 
+async function handleFileSelect(input) {
+  const file = input.files[0];
+  if (!file) return;
+
+  const formData = new FormData();
+  formData.append('file', file);
+
+  setStatus('Uploading file...', true);
+  
+  try {
+    const res = await fetch('/api/chat/upload', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + token
+      },
+      body: formData
+    });
+
+    if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
+    
+    const data = await res.json();
+    const filePath = data.files[0].path;
+
+    // Send a message automatically
+    const chatInput = document.getElementById('chat-input');
+    chatInput.value = `I have uploaded a file for you to analyze: ${filePath}. Please look at it and describe it! :3`;
+    sendMessage();
+    
+  } catch (err) {
+    console.error('Upload failed:', err);
+    addMessage('system', 'Upload failed: ' + err.message);
+    setStatus('');
+  } finally {
+    input.value = ''; // Reset input
+  }
+}
+
 function sendApprovalAction(requestId, action) {
   apiFetch('/api/chat/approval', {
     method: 'POST',
@@ -477,6 +514,33 @@ function createNewThread() {
     loadHistory();
     loadThreads();
   }).catch((err) => console.error(err));
+}
+
+function rollbackChat() {
+  if (!currentThreadId) {
+    alert("Select a thread to rollback first. 😿");
+    return;
+  }
+  const timestamp = prompt('Enter the timestamp to rollback to (e.g. [08:15:11]):');
+  if (!timestamp) return;
+
+  const date = prompt('Enter the date of the daily log file (e.g. 2026-02-26):');
+  if (!date) return;
+
+  if (!confirm(`Are you sure you want to rollback this thread and truncate the daily log for ${date} at ${timestamp}?`)) return;
+
+  apiFetch('/api/chat/rollback', {
+    method: 'POST',
+    body: { thread_id: currentThreadId, timestamp: timestamp, date: date }
+  }).then(() => {
+    alert("Rollback successful! ⏪");
+    document.getElementById('chat-messages').innerHTML = '';
+    loadHistory();
+    loadThreads();
+  }).catch((err) => {
+    console.error('Failed to rollback chat:', err);
+    alert('Failed to rollback chat. 😿');
+  });
 }
 
 function renameThread(threadId) {

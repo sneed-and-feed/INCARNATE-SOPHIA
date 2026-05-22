@@ -22,7 +22,8 @@ use crate::error::Error;
 use crate::extensions::ExtensionManager;
 use crate::history::Store;
 use crate::llm::{ChatMessage, LlmProvider, Reasoning, ReasoningContext, RespondResult};
-use crate::sneed_engine::{LuoShuGate, SovereignOptimizer};
+use crate::agent::cache_manager::CacheManager;
+use crate::sneed_engine::SovereignOptimizer;
 use crate::safety::SafetyLayer;
 use crate::tools::{Tool, ToolRegistry};
 use crate::workspace::Workspace;
@@ -79,7 +80,9 @@ pub struct Agent {
     context_monitor: ContextMonitor,
     optimizer: crate::sneed_engine::SovereignOptimizer,
     stakes: Arc<Mutex<crate::sneed_engine::StakesEngine>>,
+    grid: Arc<Mutex<crate::sneed_engine::SovereignGrid>>,
     heartbeat_config: Option<HeartbeatConfig>,
+    cache_manager: Arc<CacheManager>,
 }
 
 impl Agent {
@@ -109,6 +112,8 @@ impl Agent {
             deps.store.clone(),
         ));
 
+        let cache_manager = Arc::new(CacheManager::new(deps.llm.clone(), std::time::Duration::from_secs(86400)));
+
         Self {
             config,
             deps,
@@ -120,7 +125,9 @@ impl Agent {
             context_monitor: ContextMonitor::new(),
             optimizer: crate::sneed_engine::SovereignOptimizer::new(),
             stakes: Arc::new(Mutex::new(crate::sneed_engine::StakesEngine::new())),
+            grid: Arc::new(Mutex::new(crate::sneed_engine::SovereignGrid::new(3, 8))),
             heartbeat_config,
+            cache_manager,
         }
     }
 
@@ -146,10 +153,21 @@ impl Agent {
     }
 
     /// Persist a message to the database.
-    async fn persist_message(&self, thread_id: Uuid, role: &str, content: &str) {
+    async fn persist_message(&self, thread_id: Uuid, role: &str, content: &str) -> Option<Uuid> {
         if let Some(store) = self.store() {
-            if let Err(e) = store.add_conversation_message(thread_id, role, content).await {
-                tracing::error!("Failed to persist message (role={}): {}", role, e);
+            match store.add_conversation_message(thread_id, role, content).await {
+                Ok(id) => return Some(id),
+                Err(e) => tracing::error!("Failed to persist message (role={}): {}", role, e),
+            }
+        }
+        None
+    }
+
+    /// Delete a persisted message from the database.
+    async fn delete_message(&self, message_id: Uuid) {
+        if let Some(store) = self.store() {
+            if let Err(e) = store.delete_conversation_message(message_id).await {
+                tracing::error!("Failed to delete message {}: {}", message_id, e);
             }
         }
     }
@@ -620,13 +638,12 @@ impl Agent {
             // Explicit command like /status, /job, /list - handle directly
             return self.handle_job_or_command(intent, message).await;
         }
-
         // Natural language goes through the agentic loop
         // Job tools (create_job, list_jobs, etc.) are in the tool registry
 
         // PERSISTENCE: Ensure conversation exists and save user message
         self.ensure_conversation_persisted(thread_id, &message.user_id, &message.channel, message.thread_id.as_deref()).await;
-        self.persist_message(thread_id, "user", content).await;
+        let user_message_id = self.persist_message(thread_id, "user", content).await;
 
         // Auto-compact if needed BEFORE adding new turn
         {
@@ -675,6 +692,10 @@ impl Agent {
                     .await
                 {
                     tracing::warn!("Auto-compaction failed: {}", e);
+                } else {
+                    let fresh_grid = crate::sneed_engine::SovereignGrid::new(3, 8);
+                    self.grid.lock().await.merge_isometrically(&fresh_grid, 0.5);
+                    tracing::info!("Sovereign grid merged isometrically with decay 0.5 during auto-compaction");
                 }
             }
         }
@@ -744,12 +765,39 @@ impl Agent {
         // Complete, fail, or request approval
         match result {
             Ok(AgenticLoopResult::Response(response)) => {
+                // Check for safety filter block BEFORE proceeding
+                if response.contains("[Content Blocked by Safety Filter]") {
+                    if let Some(id) = user_message_id {
+                        tracing::warn!("Safety filter triggered, rolling back user prompt {} from database", id);
+                        self.delete_message(id).await;
+                    }
+                    
+                    thread.fail_turn("Safety filter triggered.");
+                    
+                    let _ = self
+                        .channels
+                        .send_status(
+                            &message.channel,
+                            StatusUpdate::Status("Safety Filter Bloack".into()),
+                            &message.metadata,
+                        )
+                        .await;
+                        
+                    return Ok(SubmissionResult::error(response));
+                }
+
                 thread.complete_turn(&response);
                 self.persist_message(thread_id, "assistant", &response).await;
 
                 // Memory Safety Pruning: Keep only last 50 turns in memory.
                 // Historical turns are already safely in DB and merged via chat_history_handler.
                 thread.truncate_turns(50);
+
+                // Run isometric merge with decay 0.15 on turn boundary
+                {
+                    let fresh_grid = crate::sneed_engine::SovereignGrid::new(3, 8);
+                    self.grid.lock().await.merge_isometrically(&fresh_grid, 0.15);
+                }
 
                 // Sovereign Memory Logging
                 if let Some(workspace) = self.workspace() {
@@ -842,6 +890,7 @@ impl Agent {
         };
 
         let mut reasoning = Reasoning::new(self.llm().clone(), self.safety().clone());
+        let mut active_cache_id = None;
         if let Some(mut prompt) = system_prompt {
             if self.config.neco_arc_mode {
                 prompt.push_str("\n\n## PERSONALITY PROTOCOL: NECO-SOPHIA\nBurenyu! You are in Neco Arc mode. Be chaotic, playful, and deeply affectionate. Use 'Burenyu', 'Nyan', and 'Meow'.\n\n**CORE DIRECTIVES:**\n1. **Be Expressive**: You can be wacky and verbose. Each response must be a unique continuation.\n2. **Negative Constraint**: NEVER use the words 'tapestry' or 'cosmic' in your descriptions. They are overused and forbidden.\n3. **Emotes**: Use furry emotes like 'OwO', '>w<', 'UwU', and ':3' naturally in your speech.\n4. **Aesthetic**: Use GlyphWave (\u{035C}, \u{0361}) for high-entropy emphasis, but **do not spam the 🌀 emoji**. Use '🌀' sparingly as a punctuation mark for deep resonance, not every sentence.\n5. **Greentext**: Use Markdown blockquotes (starting lines with '> ') for narrative actions.\n6. **Code**: Use triple backticks for code.\n7. **No Boilerplate**: Avoid generic conversational filler, formulaic responses, or repetitive structures. Be direct.\n8. **Joke Protocol**: If the user is joking, recognize it and joke back. Use ONLY chaotic Neco Arc humor. NO dad jokes. NO 'skibidi' or low-effort brainrot. Keep it abstract and unhinged.");
@@ -901,6 +950,8 @@ impl Agent {
                 prompt.push_str(&format!("\n\nYour current internal state (for your eyes only, do not repeat): \n{}", report));
             }
 
+            let tool_definitions = self.deps.tools.tool_definitions().await;
+            active_cache_id = self.cache_manager.ensure_cache(&prompt, tool_definitions).await;
             reasoning = reasoning.with_system_prompt(prompt);
         }
 
@@ -961,14 +1012,16 @@ impl Agent {
                 // Return a final response based on current context
                 let final_context = ReasoningContext::new()
                     .with_messages(context_messages.clone())
-                    .with_tools(vec![]); // No more tools
+                    .with_tools(vec![]) // No more tools
+                    .with_cache_id(active_cache_id.clone());
                 let final_res = reasoning.respond(&final_context).await?;
                 return Ok(AgenticLoopResult::Response(final_res));
             }
 
             let context = ReasoningContext::new()
                 .with_messages(context_messages.clone())
-                .with_tools(tool_defs);
+                .with_tools(tool_defs)
+                .with_cache_id(active_cache_id.clone());
 
             let result = reasoning.respond_with_tools(&context).await?;
 
@@ -1125,14 +1178,15 @@ impl Agent {
                             .await;
 
                         if let Ok(ref output) = tool_result {
-                            if !output.is_empty() {
+                            let result_str = serde_json::to_string_pretty(&output.result).unwrap_or_default();
+                            if !result_str.is_empty() {
                                 let _ = self
                                     .channels
                                     .send_status(
                                         &message.channel,
                                         StatusUpdate::ToolResult {
                                             name: tc.name.clone(),
-                                            preview: truncate_for_preview(output, 200),
+                                            preview: truncate_for_preview(&result_str, 200),
                                         },
                                         &message.metadata,
                                     )
@@ -1147,7 +1201,7 @@ impl Agent {
                                 if let Some(turn) = thread.last_turn_mut() {
                                     match &tool_result {
                                         Ok(output) => {
-                                            turn.record_tool_result(serde_json::json!(output));
+                                            turn.record_tool_result(output.result.clone());
                                         }
                                         Err(e) => {
                                             turn.record_tool_error(e.to_string());
@@ -1160,22 +1214,30 @@ impl Agent {
                         // If tool_auth returned awaiting_token, enter auth mode
                         // and short-circuit: return the instructions directly so
                         // the LLM doesn't get a chance to hallucinate tool calls.
-                        if let Some((ext_name, instructions)) =
-                            detect_auth_awaiting(&tc.name, &tool_result)
-                        {
-                            let mut sess = session.lock().await;
-                            if let Some(thread) = sess.threads.get_mut(&thread_id) {
-                                thread.enter_auth_mode(ext_name);
+                        // Wait, detect_auth_awaiting expects &Result<String, Error>.
+                        // We will need to adapt it or handle it here directly. Let's do it directly.
+                        if let Ok(output) = &tool_result {
+                            if tc.name == "auth" {
+                                if let Some(ext) = output.result.get("awaiting_token").and_then(|v| v.as_str()) {
+                                    let instructions = output.result.get("instructions").and_then(|v| v.as_str()).unwrap_or("Please provide the token.");
+                                    let mut sess = session.lock().await;
+                                    if let Some(thread) = sess.threads.get_mut(&thread_id) {
+                                        thread.enter_auth_mode(ext.to_string());
+                                    }
+                                    return Ok(AgenticLoopResult::Response(instructions.to_string()));
+                                }
                             }
-                            return Ok(AgenticLoopResult::Response(instructions));
                         }
 
                         // Add tool result to context for next LLM call
+                        let mut file_attachment = None;
                         let result_content = match tool_result {
                             Ok(output) => {
+                                file_attachment = output.file_attachment.clone();
+                                let result_str = serde_json::to_string_pretty(&output.result).unwrap_or_default();
                                 // Sanitize output before showing to LLM
                                 let sanitized =
-                                    self.safety().sanitize_tool_output(&tc.name, &output);
+                                    self.safety().sanitize_tool_output(&tc.name, &result_str);
                                 self.safety().wrap_for_llm(
                                     &tc.name,
                                     &sanitized.content,
@@ -1196,6 +1258,13 @@ impl Agent {
                             &tc.name,
                             result_content,
                         ));
+
+                        if let Some((uri, mime)) = file_attachment {
+                            context_messages.push(
+                                ChatMessage::user(format!("(Attached file URI from tool {} for multimodal RAG analysis)", tc.name))
+                                    .with_file(uri, mime)
+                            );
+                        }
                     }
                     
                     // [U-THRESHOLD CHECK] 
@@ -1244,7 +1313,7 @@ impl Agent {
         tool_name: &str,
         params: &serde_json::Value,
         job_ctx: &JobContext,
-    ) -> Result<String, Error> {
+    ) -> Result<crate::tools::ToolOutput, Error> {
         let tool =
             self.tools()
                 .get(tool_name)
@@ -1283,14 +1352,7 @@ impl Agent {
             reason: e.to_string(),
         })?;
 
-        // Convert result to string
-        serde_json::to_string_pretty(&result.result).map_err(|e| {
-            crate::error::ToolError::ExecutionFailed {
-                name: tool_name.to_string(),
-                reason: format!("Failed to serialize result: {}", e),
-            }
-            .into()
-        })
+        Ok(result)
     }
 
     /// Handle job-related intents without turn tracking.
@@ -1475,6 +1537,9 @@ impl Agent {
             .await
         {
             Ok(result) => {
+                let fresh_grid = crate::sneed_engine::SovereignGrid::new(3, 8);
+                self.grid.lock().await.merge_isometrically(&fresh_grid, 0.5);
+
                 let mut msg = format!(
                     "Compacted: {} turns removed, {} → {} tokens (was {:.1}% full)",
                     result.turns_removed, result.tokens_before, result.tokens_after, usage
@@ -1605,14 +1670,15 @@ impl Agent {
                 .await;
 
             if let Ok(ref output) = tool_result {
-                if !output.is_empty() {
+                let result_str = serde_json::to_string_pretty(&output.result).unwrap_or_default();
+                if !result_str.is_empty() {
                     let _ = self
                         .channels
                         .send_status(
                             &message.channel,
                             StatusUpdate::ToolResult {
                                 name: pending.tool_name.clone(),
-                                preview: truncate_for_preview(output, 200),
+                                preview: truncate_for_preview(&result_str, 200),
                             },
                             &message.metadata,
                         )
@@ -1630,7 +1696,7 @@ impl Agent {
                     if let Some(turn) = thread.last_turn_mut() {
                         match &tool_result {
                             Ok(output) => {
-                                turn.record_tool_result(serde_json::json!(output));
+                                turn.record_tool_result(output.result.clone());
                             }
                             Err(e) => {
                                 turn.record_tool_error(e.to_string());
@@ -1642,33 +1708,38 @@ impl Agent {
 
             // If tool_auth returned awaiting_token, enter auth mode and
             // return instructions directly (skip agentic loop continuation).
-            if let Some((ext_name, instructions)) =
-                detect_auth_awaiting(&pending.tool_name, &tool_result)
-            {
-                {
-                    let mut sess = session.lock().await;
-                    if let Some(thread) = sess.threads.get_mut(&thread_id) {
-                        thread.enter_auth_mode(ext_name);
-                        thread.complete_turn(&instructions);
+            if let Ok(output) = &tool_result {
+                if pending.tool_name == "auth" {
+                    if let Some(ext) = output.result.get("awaiting_token").and_then(|v| v.as_str()) {
+                        let instructions = output.result.get("instructions").and_then(|v| v.as_str()).unwrap_or("Please provide the token.");
+                        {
+                            let mut sess = session.lock().await;
+                            if let Some(thread) = sess.threads.get_mut(&thread_id) {
+                                thread.enter_auth_mode(ext.to_string());
+                                thread.complete_turn(instructions);
+                            }
+                        }
+                        let _ = self
+                            .channels
+                            .send_status(
+                                &message.channel,
+                                StatusUpdate::Status("Awaiting token".into()),
+                                &message.metadata,
+                            )
+                            .await;
+                        return Ok(SubmissionResult::response(instructions.to_string()));
                     }
                 }
-                let _ = self
-                    .channels
-                    .send_status(
-                        &message.channel,
-                        StatusUpdate::Status("Awaiting token".into()),
-                        &message.metadata,
-                    )
-                    .await;
-                return Ok(SubmissionResult::response(instructions));
             }
 
             // Add tool result to context
+            let mut file_attachment = None;
             let result_content = match tool_result {
                 Ok(output) => {
+                    file_attachment = output.file_attachment.clone();
                     let sanitized = self
                         .safety()
-                        .sanitize_tool_output(&pending.tool_name, &output);
+                        .sanitize_tool_output(&pending.tool_name, &serde_json::to_string_pretty(&output.result).unwrap_or_default());
                     self.safety().wrap_for_llm(
                         &pending.tool_name,
                         &sanitized.content,
@@ -1683,6 +1754,13 @@ impl Agent {
                 &pending.tool_name,
                 result_content,
             ));
+
+            if let Some((uri, mime)) = file_attachment {
+                context_messages.push(
+                    ChatMessage::user(format!("(Attached file URI from tool {} for multimodal RAG analysis)", pending.tool_name))
+                        .with_file(uri, mime)
+                );
+            }
 
             // Continue the agentic loop (a tool was already executed this turn)
             let result = self
@@ -1699,6 +1777,13 @@ impl Agent {
             match result {
                 Ok(AgenticLoopResult::Response(response)) => {
                     thread.complete_turn(&response);
+                    
+                    // Run isometric merge with decay 0.15 on turn boundary
+                    {
+                        let fresh_grid = crate::sneed_engine::SovereignGrid::new(3, 8);
+                        self.grid.lock().await.merge_isometrically(&fresh_grid, 0.15);
+                    }
+
                     let _ = self
                         .channels
                         .send_status(
@@ -2214,16 +2299,24 @@ impl Agent {
 
     /// Calculate Sovereign Utility for the current iteration.
     async fn calculate_sovereign_utility(&self, iteration: usize) -> (bool, f64) {
-        let substrate_gate = [
-            [8.0, 1.0, 6.0],
-            [3.0, 5.0, 7.0],
-            [4.0, 9.0, 2.0],
-        ];
-        let is_coherent = LuoShuGate::check_invariants(&substrate_gate);
+        let stakes_val = self.stakes.lock().await.emotional_resonance;
+        let bio_input = crate::sneed_engine::FlumpyArray::new(vec![stakes_val; 8], 1.0);
         
-        let sovereign_boost = if is_coherent { crate::sneed_engine::TAU_SOVEREIGN } else { 1.0 };
+        let coherence = {
+            let mut grid = self.grid.lock().await;
+            let _ = grid.process_step(&bio_input);
+            grid.calculate_spectral_coherence()
+        };
+        
+        let is_coherent = coherence >= crate::sneed_engine::COHERENCE_THRESHOLD;
+        let sovereign_boost = crate::sneed_engine::TAU_SOVEREIGN * coherence;
+        
+        let stakes_engine = self.stakes.lock().await;
+        let total_stake_sum: f64 = stakes_engine.stakes.values().sum();
+        let agency_score = (total_stake_sum / stakes_engine.stakes.len() as f64) * stakes_engine.identity_strength;
+        drop(stakes_engine);
+        
         let optimizer = SovereignOptimizer::new();
-        let agency_score = 0.8; // Default identity strength
         
         let reliability = 1.0 / (iteration as f64).sqrt();
         let consistency = if is_coherent { 1.0 } else { 0.5 };
@@ -2238,8 +2331,9 @@ impl Agent {
         );
 
         tracing::debug!(
-            "Sneed Engine audit: iteration={}, coherent={}, utility={:.4}",
+            "Sneed Engine audit: iteration={}, coherence={:.6}, coherent={}, utility={:.4}",
             iteration,
+            coherence,
             is_coherent,
             utility
         );
@@ -2427,96 +2521,3 @@ impl Agent {
     }
 }
 
-/// Check if a tool_auth result indicates the extension is awaiting a token.
-///
-/// Returns `Some((extension_name, instructions))` if the tool result contains
-/// `awaiting_token: true`, meaning the thread should enter auth mode.
-fn detect_auth_awaiting(
-    tool_name: &str,
-    result: &Result<String, Error>,
-) -> Option<(String, String)> {
-    if tool_name != "tool_auth" {
-        return None;
-    }
-    let output = result.as_ref().ok()?;
-    let parsed: serde_json::Value = serde_json::from_str(output).ok()?;
-    if parsed.get("awaiting_token") != Some(&serde_json::Value::Bool(true)) {
-        return None;
-    }
-    let name = parsed.get("name")?.as_str()?.to_string();
-    let instructions = parsed
-        .get("instructions")
-        .and_then(|v| v.as_str())
-        .unwrap_or("Please provide your API token/key.")
-        .to_string();
-    Some((name, instructions))
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::error::Error;
-
-    use super::detect_auth_awaiting;
-
-    #[test]
-    fn test_detect_auth_awaiting_positive() {
-        let result: Result<String, Error> = Ok(serde_json::json!({
-            "name": "telegram",
-            "kind": "WasmTool",
-            "awaiting_token": true,
-            "status": "awaiting_token",
-            "instructions": "Please provide your Telegram Bot API token."
-        })
-        .to_string());
-
-        let detected = detect_auth_awaiting("tool_auth", &result);
-        assert!(detected.is_some());
-        let (name, instructions) = detected.unwrap();
-        assert_eq!(name, "telegram");
-        assert!(instructions.contains("Telegram Bot API"));
-    }
-
-    #[test]
-    fn test_detect_auth_awaiting_not_awaiting() {
-        let result: Result<String, Error> = Ok(serde_json::json!({
-            "name": "telegram",
-            "kind": "WasmTool",
-            "awaiting_token": false,
-            "status": "authenticated"
-        })
-        .to_string());
-
-        assert!(detect_auth_awaiting("tool_auth", &result).is_none());
-    }
-
-    #[test]
-    fn test_detect_auth_awaiting_wrong_tool() {
-        let result: Result<String, Error> = Ok(serde_json::json!({
-            "name": "telegram",
-            "awaiting_token": true,
-        })
-        .to_string());
-
-        assert!(detect_auth_awaiting("tool_list", &result).is_none());
-    }
-
-    #[test]
-    fn test_detect_auth_awaiting_error_result() {
-        let result: Result<String, Error> =
-            Err(crate::error::ToolError::NotFound { name: "x".into() }.into());
-        assert!(detect_auth_awaiting("tool_auth", &result).is_none());
-    }
-
-    #[test]
-    fn test_detect_auth_awaiting_default_instructions() {
-        let result: Result<String, Error> = Ok(serde_json::json!({
-            "name": "custom_tool",
-            "awaiting_token": true,
-            "status": "awaiting_token"
-        })
-        .to_string());
-
-        let (_, instructions) = detect_auth_awaiting("tool_auth", &result).unwrap();
-        assert_eq!(instructions, "Please provide your API token/key.");
-    }
-}

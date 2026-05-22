@@ -341,7 +341,7 @@ mod tests {
     #[test]
     fn test_leak_detector_scrubs_api_key_in_log() {
         let detector = crate::safety::LeakDetector::new();
-        let msg = "Connecting with token sk-proj-test1234567890abcdefghij";
+        let msg = "Connecting with token sk-proj-test1234567890abcdefghij12345678";
         let result = detector.scan_and_clean(msg);
         // Should be blocked (OpenAI key pattern)
         assert!(result.is_err());

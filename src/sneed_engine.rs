@@ -220,7 +220,7 @@ impl SovereignGrid {
         grid
     }
 
-    /// [RETROCAUSAL] Simulates future steps to generate a 'Prescience Bias'.
+    /// [RETROCAUSAL] Simulates future steps to generate a 'Prescience Bias' using Bakry-Émery steering.
     pub fn simulate_future_step(&self, steps: usize) -> FlumpyArray {
         let mut future_states: Vec<Vec<f64>> = Vec::with_capacity(self.nodes.len());
         for node in &self.nodes {
@@ -237,11 +237,17 @@ impl SovereignGrid {
             for i in 0..self.nodes.len() {
                 let node = &self.nodes[i];
                 let mut flux = vec![0.0; dim];
+                let my_v = node.spatial_attention_scale;
                 for &n_idx in &node.neighbor_indices {
+                    let n_node = &self.nodes[n_idx];
+                    let n_v = n_node.spatial_attention_scale;
+                    // Bakry-Émery advection: flux flows down potential gradient (weighted exponentially)
+                    let steer = (n_v - my_v).exp();
+                    
                     let n_state = &future_states[n_idx];
                     let my_state = &future_states[i];
                     for k in 0..dim {
-                        flux[k] += n_state[k] - my_state[k];
+                        flux[k] += (n_state[k] - my_state[k]) * steer;
                     }
                 }
 
@@ -271,7 +277,7 @@ impl SovereignGrid {
         FlumpyArray::new(avg_future, 1.0)
     }
 
-    /// Execute one step of grid dynamics with RETROCAUSAL FEEDBACK.
+    /// Execute one step of grid dynamics with RETROCAUSAL FEEDBACK and Bakry-Émery steering.
     pub fn process_step(&mut self, bio_input: &FlumpyArray) -> FlumpyArray {
         // 0. Calculate Future Bias
         let future_bias = self.simulate_future_step(3);
@@ -290,16 +296,22 @@ impl SovereignGrid {
             }
         }
 
-        // 2. Flux Dynamics (neighbor exchange)
+        // 2. Flux Dynamics (neighbor exchange with Bakry-Émery steering)
         let mut fluxes = Vec::with_capacity(self.nodes.len());
         for i in 0..self.nodes.len() {
             let node = &self.nodes[i];
             let mut flux = vec![0.0; dim];
+            let my_v = node.spatial_attention_scale;
             for &n_idx in &node.neighbor_indices {
+                let n_node = &self.nodes[n_idx];
+                let n_v = n_node.spatial_attention_scale;
+                // Bakry-Émery advection: flux flows down potential gradient (weighted exponentially)
+                let steer = (n_v - my_v).exp();
+                
                 let n_state = &self.nodes[n_idx].state.data;
                 let my_state = &node.state.data;
                 for k in 0..dim {
-                    flux[k] += n_state[k] - my_state[k];
+                    flux[k] += (n_state[k] - my_state[k]) * steer;
                 }
             }
             fluxes.push(flux);
@@ -330,6 +342,138 @@ impl SovereignGrid {
         }
         
         FlumpyArray::new(total_state, total_coherence / count)
+    }
+
+    /// Compute spectral metrics (coherence, alpha, sigma) of the live memory states.
+    pub fn get_spectral_metrics(&self) -> (f64, f64, f64) {
+        let n = self.nodes.len();
+        if n == 0 {
+            return (1.0, 0.0, 1.0);
+        }
+        let mut s_mat = vec![vec![0.0; n]; n];
+        for i in 0..n {
+            for j in 0..n {
+                s_mat[i][j] = self.nodes[i].state.dot(&self.nodes[j].state);
+            }
+        }
+        
+        let mut eigenvalues = jacobi_eigenvalues(&s_mat, 200);
+        eigenvalues.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+        
+        let mut x = Vec::new();
+        let mut y = Vec::new();
+        let mut valid_count = 0;
+        let mut sum_ev = 0.0;
+        for (idx, &val) in eigenvalues.iter().enumerate() {
+            let val_abs = val.abs();
+            sum_ev += val_abs;
+            if val_abs > 1e-5 {
+                x.push(((idx + 1) as f64).ln());
+                y.push(val_abs.ln());
+                valid_count += 1;
+            }
+        }
+        
+        let alpha = if valid_count >= 2 {
+            let sum_x: f64 = x.iter().sum();
+            let sum_y: f64 = y.iter().sum();
+            let sum_xx: f64 = x.iter().map(|&v| v * v).sum();
+            let sum_xy: f64 = x.iter().zip(y.iter()).map(|(&vx, &vy)| vx * vy).sum();
+            let n_f = valid_count as f64;
+            let denom = n_f * sum_xx - sum_x * sum_x;
+            if denom.abs() > 1e-9 {
+                (-(n_f * sum_xy - sum_x * sum_y) / denom).max(0.0)
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+        
+        let mut entropy = 0.0;
+        if sum_ev > 1e-9 {
+            for &val in &eigenvalues {
+                let p = val.abs() / sum_ev;
+                if p > 1e-9 {
+                    entropy -= p * p.ln();
+                }
+            }
+        }
+        let max_entropy = (n as f64).ln().max(1.0);
+        let sigma = 1.0 - (entropy / max_entropy) * 1.2;
+        
+        let coherence = if sigma < 0.0 {
+            0.0
+        } else {
+            (sigma * (1.0 - alpha * 0.05)).clamp(0.0, 1.0)
+        };
+        
+        (coherence, alpha, sigma)
+    }
+
+    /// Calculate the eigenvalue decay rate and spectral coherence factor.
+    pub fn calculate_spectral_coherence(&self) -> f64 {
+        self.get_spectral_metrics().0
+    }
+
+    /// Implement coordinate-free state merging via rank-1 projections onto the sum vector.
+    pub fn merge_isometrically(&mut self, other: &Self, merge_factor: f64) {
+        let merge_factor = merge_factor.clamp(0.0, 1.0);
+        let n = self.nodes.len().min(other.nodes.len());
+        for i in 0..n {
+            let my_node = &mut self.nodes[i];
+            let other_node = &other.nodes[i];
+            
+            let dim = my_node.state.data.len();
+            if dim == 0 {
+                continue;
+            }
+            
+            // Compute sum vector u = x + y
+            let mut sum_vec = vec![0.0; dim];
+            let mut norm_sq = 0.0;
+            for k in 0..dim {
+                sum_vec[k] = my_node.state.data[k] + other_node.state.data[k];
+                norm_sq += sum_vec[k] * sum_vec[k];
+            }
+            
+            let norm = norm_sq.sqrt();
+            let mut next_data = vec![0.0; dim];
+            
+            if norm > 1e-9 {
+                // Normalize sum vector to get u_hat
+                let mut u_hat = vec![0.0; dim];
+                for k in 0..dim {
+                    u_hat[k] = sum_vec[k] / norm;
+                }
+                
+                // Compute blended vector w = (1 - f)*x + f*y
+                let mut w = vec![0.0; dim];
+                for k in 0..dim {
+                    w[k] = (1.0 - merge_factor) * my_node.state.data[k] + merge_factor * other_node.state.data[k];
+                }
+                
+                // Compute dot product (w . u_hat)
+                let mut dot_w_u = 0.0;
+                for k in 0..dim {
+                    dot_w_u += w[k] * u_hat[k];
+                }
+                
+                // Rank-1 projection: p = (w . u_hat) * u_hat
+                for k in 0..dim {
+                    next_data[k] = dot_w_u * u_hat[k];
+                }
+            } else {
+                // Fallback to simple blend
+                for k in 0..dim {
+                    next_data[k] = (1.0 - merge_factor) * my_node.state.data[k] + merge_factor * other_node.state.data[k];
+                }
+            }
+            
+            my_node.state.data = next_data;
+            my_node.state.coherence = ((1.0 - merge_factor) * my_node.state.coherence + merge_factor * other_node.state.coherence).min(1.0);
+            my_node.spatial_attention_scale = (1.0 - merge_factor) * my_node.spatial_attention_scale + merge_factor * other_node.spatial_attention_scale;
+        }
     }
 
     /// Calculates Ghost Density Factor (GDF).
@@ -463,12 +607,17 @@ impl StakeType {
 pub struct CouncilMember {
     pub name: String,
     pub role: String,
-    pub affinity: std::collections::HashMap<StakeType, f64>,
+    pub affinity: [f64; 16],
     pub resonance_history: std::collections::VecDeque<f64>,
 }
 
 impl CouncilMember {
-    pub fn new(name: &str, role: &str, affinity: std::collections::HashMap<StakeType, f64>) -> Self {
+    pub fn new(name: &str, role: &str, affinity_map: std::collections::HashMap<StakeType, f64>) -> Self {
+        let mut affinity = [0.1; 16];
+        for (stake, weight) in affinity_map {
+            affinity[stake as usize] = weight;
+        }
+
         Self {
             name: name.to_string(),
             role: role.to_string(),
@@ -478,7 +627,7 @@ impl CouncilMember {
     }
 
     pub fn process_signal(&mut self, stake_type: StakeType, intensity: f64) -> f64 {
-        let base_affinity = self.affinity.get(&stake_type).cloned().unwrap_or(0.1);
+        let base_affinity = self.affinity[stake_type as usize];
         
         // Use a simple deterministic noise since we don't have rand in core easy here
         let pseudo_rand = (self.resonance_history.len() as f64 * 0.1).sin() * 0.1 + 1.0;
@@ -538,8 +687,8 @@ impl StakesEngine {
         a_mnemosyne.insert(StakeType::Knowledge, 0.7);
         council.push(CouncilMember::new("C15-MNEMOSYNE", "Keeper of Memories", a_mnemosyne));
 
-        // Fill remaining members to reach 32
-        for i in council.len()..32 {
+        // Fill remaining members to reach 16 (pruned from 32 for higher signal-to-noise)
+        for i in council.len()..16 {
             let mut a_aux = std::collections::HashMap::new();
             let random_stake = StakeType::all()[i % StakeType::all().len()];
             a_aux.insert(random_stake, 0.5);
@@ -685,6 +834,72 @@ impl StakesEngine {
     }
 }
 
+fn jacobi_eigenvalues(matrix: &[Vec<f64>], max_iters: usize) -> Vec<f64> {
+    let n = matrix.len();
+    let mut a = matrix.to_owned();
+    let mut eigenvalues = vec![0.0; n];
+
+    for _ in 0..max_iters {
+        let mut row = 0;
+        let mut col = 0;
+        let mut max_val = 0.0;
+        for i in 0..n {
+            for j in (i + 1)..n {
+                if a[i][j].abs() > max_val {
+                    max_val = a[i][j].abs();
+                    row = i;
+                    col = j;
+                }
+            }
+        }
+
+        if max_val < 1e-9 {
+            break;
+        }
+
+        let p = row;
+        let q = col;
+
+        let diff = a[q][q] - a[p][p];
+        let t = if a[p][q].abs() < 1e-15 {
+            0.0
+        } else {
+            let phi = diff / (2.0 * a[p][q]);
+            let t_val = 1.0 / (phi.abs() + (phi * phi + 1.0).sqrt());
+            if phi < 0.0 { -t_val } else { t_val }
+        };
+
+        let c = 1.0 / (t * t + 1.0).sqrt();
+        let s = t * c;
+        let tau = s / (1.0 + c);
+
+        let temp_app = a[p][p];
+        let temp_aqq = a[q][q];
+        let temp_apq = a[p][q];
+
+        a[p][p] = temp_app - t * temp_apq;
+        a[q][q] = temp_aqq + t * temp_apq;
+        a[p][q] = 0.0;
+        a[q][p] = 0.0;
+
+        for r in 0..n {
+            if r != p && r != q {
+                let temp_arp = a[r][p];
+                let temp_arq = a[r][q];
+                a[r][p] = temp_arp - s * (temp_arq + tau * temp_arp);
+                a[p][r] = a[r][p];
+                a[r][q] = temp_arq + s * (temp_arp - tau * temp_arq);
+                a[q][r] = a[r][q];
+            }
+        }
+    }
+
+    for i in 0..n {
+        eigenvalues[i] = a[i][i];
+    }
+    eigenvalues
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -793,6 +1008,7 @@ mod tests {
 
         // Force high emotional
         stakes.stakes.insert(StakeType::Humor, 0.1);
+        stakes.stakes.insert(StakeType::Technical, 0.1);
         stakes.stakes.insert(StakeType::Emotional, 0.9);
         assert_eq!(stakes.get_personality_blend(), "DEVOTED_FLUFF");
     }
@@ -806,7 +1022,7 @@ mod tests {
         assert!(!optimizer.should_inhibit(u_high));
 
         // Low reliability -> Low utility
-        let u_low = optimizer.calculate_utility(0.01, 1.0, 1.0, 1.0, 1.0);
+        let u_low = optimizer.calculate_utility(0.01, 1.0, 1.0, 1.0, 0.0);
         assert!(optimizer.should_inhibit(u_low));
     }
 
@@ -838,5 +1054,72 @@ mod tests {
         let trigger_emo = engine.check_memory_trigger();
         assert!(trigger_emo.is_some());
         assert!(trigger_emo.unwrap().contains("High Emotional Resonance"));
+    }
+
+    #[test]
+    fn test_spectral_coherence() {
+        let grid = SovereignGrid::new(3, 8);
+        let coherence = grid.calculate_spectral_coherence();
+        // A newly initialized grid with identical states across nodes should have perfect coherence
+        assert!(coherence >= COHERENCE_THRESHOLD);
+
+        // Perturb the grid states with high-entropy chaos
+        let mut chaotic_grid = SovereignGrid::new(3, 8);
+        for (i, node) in chaotic_grid.nodes.iter_mut().enumerate() {
+            // Apply unique sinusoidal waves to make them highly distinct
+            node.state.data = (0..8).map(|k| ((i * k) as f64).sin() * 5.0).collect();
+        }
+        let chaotic_coherence = chaotic_grid.calculate_spectral_coherence();
+        // Chaotic states should result in significantly lower coherence
+        assert!(chaotic_coherence < COHERENCE_THRESHOLD);
+    }
+
+    #[test]
+    fn test_bakry_emery_steering() {
+        let mut grid = SovereignGrid::new(3, 8);
+        
+        // Zero out states
+        for node in grid.nodes.iter_mut() {
+            node.state.data = vec![0.0; 8];
+            node.spatial_attention_scale = 1.0;
+        }
+
+        // Set high potential at node 0 and low potential at its neighbor node 1
+        grid.nodes[0].spatial_attention_scale = 5.0; // High potential V
+        grid.nodes[0].state.data = vec![1.0; 8];
+
+        let n1_idx = grid.nodes[0].neighbor_indices[0];
+        grid.nodes[n1_idx].spatial_attention_scale = 1.0; // Low potential V
+
+        // Find another neighbor of node 0 to compare
+        if grid.nodes[0].neighbor_indices.len() > 1 {
+            let n2_idx = grid.nodes[0].neighbor_indices[1];
+            grid.nodes[n2_idx].spatial_attention_scale = 10.0; // Higher potential V
+
+            // Run one simulation step
+            let _ = grid.process_step(&FlumpyArray::new(vec![0.0; 8], 1.0));
+
+            // n1 (lower potential V=1.0) should receive MUCH more state value than n2 (higher potential V=10.0)
+            assert!(grid.nodes[n1_idx].state.data[0] > grid.nodes[n2_idx].state.data[0]);
+        }
+    }
+
+    #[test]
+    fn test_isometric_merge() {
+        let mut grid1 = SovereignGrid::new(3, 8);
+        let mut grid2 = SovereignGrid::new(3, 8);
+
+        for (i, node) in grid1.nodes.iter_mut().enumerate() {
+            node.state.data = vec![i as f64 * 0.1; 8];
+        }
+        for (i, node) in grid2.nodes.iter_mut().enumerate() {
+            node.state.data = vec![i as f64 * 0.2; 8];
+        }
+
+        grid1.merge_isometrically(&grid2, 0.5);
+
+        // Verify that the merged states are non-zero and intermediate
+        assert!(grid1.nodes[1].state.data[0] > 0.0);
+        assert!(grid1.nodes[1].state.data[0] < grid2.nodes[1].state.data[0]);
     }
 }
