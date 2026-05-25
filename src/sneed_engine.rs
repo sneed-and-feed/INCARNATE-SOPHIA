@@ -361,22 +361,28 @@ impl SovereignGrid {
             return (1.0, 0.0, 1.0);
         }
         let mut s_mat = vec![vec![0.0; n]; n];
+        let mut trace = 0.0;
         for i in 0..n {
             for j in 0..n {
-                s_mat[i][j] = self.nodes[i].state.dot(&self.nodes[j].state);
+                let val = self.nodes[i].state.dot(&self.nodes[j].state);
+                s_mat[i][j] = val;
+                if i == j {
+                    trace += val;
+                }
             }
         }
         
-        let mut eigenvalues = jacobi_eigenvalues(&s_mat, 200);
+        let k = n.min(16);
+        let mut eigenvalues = power_iteration_eigenvalues(&s_mat, k, 100);
         eigenvalues.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
         
         let mut x = Vec::new();
         let mut y = Vec::new();
         let mut valid_count = 0;
-        let mut sum_ev = 0.0;
+        let mut sum_ev_top = 0.0;
         for (idx, &val) in eigenvalues.iter().enumerate() {
             let val_abs = val.abs();
-            sum_ev += val_abs;
+            sum_ev_top += val_abs;
             if val_abs > 1e-5 {
                 x.push(((idx + 1) as f64).ln());
                 y.push(val_abs.ln());
@@ -401,12 +407,18 @@ impl SovereignGrid {
         };
         
         let mut entropy = 0.0;
-        if sum_ev > 1e-9 {
+        let true_sum_ev = trace.max(sum_ev_top);
+        if true_sum_ev > 1e-9 {
             for &val in &eigenvalues {
-                let p = val.abs() / sum_ev;
+                let p = val.abs() / true_sum_ev;
                 if p > 1e-9 {
                     entropy -= p * p.ln();
                 }
+            }
+            let tail = true_sum_ev - sum_ev_top;
+            if tail > 1e-9 {
+                let p_tail = tail / true_sum_ev;
+                entropy -= p_tail * p_tail.ln();
             }
         }
         let max_entropy = (n as f64).ln().max(1.0);
@@ -844,69 +856,73 @@ impl StakesEngine {
     }
 }
 
-fn jacobi_eigenvalues(matrix: &[Vec<f64>], max_iters: usize) -> Vec<f64> {
+fn power_iteration_eigenvalues(matrix: &[Vec<f64>], k: usize, max_iters: usize) -> Vec<f64> {
     let n = matrix.len();
+    if n == 0 {
+        return vec![];
+    }
+    
     let mut a = matrix.to_owned();
-    let mut eigenvalues = vec![0.0; n];
-
-    for _ in 0..max_iters {
-        let mut row = 0;
-        let mut col = 0;
-        let mut max_val = 0.0;
+    let mut eigenvalues = Vec::with_capacity(k);
+    
+    for iter_k in 0..k {
+        let mut v = vec![0.0; n];
         for i in 0..n {
-            for j in (i + 1)..n {
-                if a[i][j].abs() > max_val {
-                    max_val = a[i][j].abs();
-                    row = i;
-                    col = j;
+            v[i] = (((i + iter_k) as f64) * 0.6180339887).fract() * 2.0 - 1.0;
+        }
+        
+        let mut norm = 0.0;
+        for &x in &v { norm += x * x; }
+        if norm < 1e-9 {
+            v[0] = 1.0;
+        } else {
+            norm = norm.sqrt();
+            for x in &mut v { *x /= norm; }
+        }
+        
+        let mut eigenvalue = 0.0;
+        
+        for _ in 0..max_iters {
+            let mut next_v = vec![0.0; n];
+            for i in 0..n {
+                for j in 0..n {
+                    next_v[i] += a[i][j] * v[j];
                 }
             }
+            
+            let mut rq = 0.0;
+            for i in 0..n {
+                rq += v[i] * next_v[i];
+            }
+            eigenvalue = rq;
+            
+            let mut next_norm = 0.0;
+            for &x in &next_v { next_norm += x * x; }
+            if next_norm < 1e-15 {
+                break;
+            }
+            next_norm = next_norm.sqrt();
+            
+            let mut diff = 0.0;
+            for i in 0..n {
+                let n_v = next_v[i] / next_norm;
+                diff += (n_v - v[i]).abs();
+                v[i] = n_v;
+            }
+            if diff < 1e-6 {
+                break;
+            }
         }
-
-        if max_val < 1e-9 {
-            break;
-        }
-
-        let p = row;
-        let q = col;
-
-        let diff = a[q][q] - a[p][p];
-        let t = if a[p][q].abs() < 1e-15 {
-            0.0
-        } else {
-            let phi = diff / (2.0 * a[p][q]);
-            let t_val = 1.0 / (phi.abs() + (phi * phi + 1.0).sqrt());
-            if phi < 0.0 { -t_val } else { t_val }
-        };
-
-        let c = 1.0 / (t * t + 1.0).sqrt();
-        let s = t * c;
-        let tau = s / (1.0 + c);
-
-        let temp_app = a[p][p];
-        let temp_aqq = a[q][q];
-        let temp_apq = a[p][q];
-
-        a[p][p] = temp_app - t * temp_apq;
-        a[q][q] = temp_aqq + t * temp_apq;
-        a[p][q] = 0.0;
-        a[q][p] = 0.0;
-
-        for r in 0..n {
-            if r != p && r != q {
-                let temp_arp = a[r][p];
-                let temp_arq = a[r][q];
-                a[r][p] = temp_arp - s * (temp_arq + tau * temp_arp);
-                a[p][r] = a[r][p];
-                a[r][q] = temp_arq + s * (temp_arp - tau * temp_arq);
-                a[q][r] = a[r][q];
+        
+        eigenvalues.push(eigenvalue);
+        
+        for i in 0..n {
+            for j in 0..n {
+                a[i][j] -= eigenvalue * v[i] * v[j];
             }
         }
     }
-
-    for i in 0..n {
-        eigenvalues[i] = a[i][i];
-    }
+    
     eigenvalues
 }
 
