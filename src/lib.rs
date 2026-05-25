@@ -57,6 +57,7 @@ pub mod secrets;
 pub mod settings;
 pub mod setup;
 pub mod sneed_engine;
+pub mod spectral_oracle;
 pub mod tools;
 pub mod worker;
 pub mod workspace;

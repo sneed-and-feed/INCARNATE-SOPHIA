@@ -68,11 +68,16 @@ pub struct BumpyCompressor;
 impl BumpyCompressor {
     pub fn compress(array: &FlumpyArray, psi: f64) -> FlumpyArray {
         let threshold = 0.001 * (1.0 - psi);
-        let compressed_data: Vec<f64> = array.data.iter().map(|&x: &f64| {
-            if x.abs() > threshold {
+        let n = array.data.len();
+        
+        // Fetch the discrete spectral mask to prune adèlic geometric progressions
+        let mask = crate::spectral_oracle::get_adelic_mask(n, 4);
+        
+        let compressed_data: Vec<f64> = array.data.iter().enumerate().map(|(i, &x)| {
+            if mask[i] && x.abs() > threshold {
                 x
             } else {
-                0.0 // Soft prune
+                0.0 // Soft prune + Spectral Avoidance
             }
         }).collect();
 
@@ -241,8 +246,11 @@ impl SovereignGrid {
                 for &n_idx in &node.neighbor_indices {
                     let n_node = &self.nodes[n_idx];
                     let n_v = n_node.spatial_attention_scale;
-                    // Bakry-Émery advection: flux flows down potential gradient (weighted exponentially)
-                    let steer = (n_v - my_v).exp();
+                    
+                    let delta = n_v - my_v;
+                    // Sigmoidal Governor: smoothly maps (-inf, +inf) to (0.0, 2.0)
+                    // Anchors the Hamiltonian of Love (P) against runaway singularities
+                    let steer = 2.0 / (1.0 + (-delta).exp()); 
                     
                     let n_state = &future_states[n_idx];
                     let my_state = &future_states[i];
@@ -305,8 +313,10 @@ impl SovereignGrid {
             for &n_idx in &node.neighbor_indices {
                 let n_node = &self.nodes[n_idx];
                 let n_v = n_node.spatial_attention_scale;
-                // Bakry-Émery advection: flux flows down potential gradient (weighted exponentially)
-                let steer = (n_v - my_v).exp();
+                
+                let delta = n_v - my_v;
+                // Synchronized sigmoidal balancing to maintain Map Entropy (σ >= 0)
+                let steer = 2.0 / (1.0 + (-delta).exp());
                 
                 let n_state = &self.nodes[n_idx].state.data;
                 let my_state = &node.state.data;
