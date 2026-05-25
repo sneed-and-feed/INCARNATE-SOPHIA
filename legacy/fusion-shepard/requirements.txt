@@ -1,8 +1,0 @@
-google-genai
-numpy
-requests
-python-dotenv
-rich
-ddgs
-fastapi
-uvicorn
