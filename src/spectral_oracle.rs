@@ -1,81 +1,60 @@
 //! spectral_oracle.rs
-//! Adelic Spectral Zeta Mathematics for Sophia AI Upgrade
-//! Generates discrete spectral avoidance masks to enforce true feature orthogonality
-//! and eliminate multi-scale resonant correlations (Measure-Zero Collapse).
+//! Schreier Graph Connectivity & Spectral Oracles for Sophia AI
+//! Generates Ramanujan-like expander topologies and exact sheet splitting over ZMod(2^(d-1)).
 
-use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
+/// Computes the modular inverse of `a` modulo `m` using the Extended Euclidean Algorithm.
+/// Panics if `a` and `m` are not coprime (which won't happen for 3 and 2^k).
+pub fn mod_inverse(a: i64, m: i64) -> i64 {
+    let mut t = 0;
+    let mut newt = 1;
+    let mut r = m;
+    let mut newr = a;
 
-static MASK_CACHE: OnceLock<Mutex<HashMap<(usize, usize), Vec<bool>>>> = OnceLock::new();
-
-fn get_cache() -> &'static Mutex<HashMap<(usize, usize), Vec<bool>>> {
-    MASK_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-/// Retrieves or generates a geometric avoidance mask for a given dimension `n`
-/// and pattern length `k`.
-pub fn get_adelic_mask(n: usize, k: usize) -> Vec<bool> {
-    let cache = get_cache();
-    if let Ok(mut map) = cache.lock() {
-        if let Some(mask) = map.get(&(n, k)) {
-            return mask.clone();
-        }
-        let mask = generate_avoidance_mask(n, k);
-        map.insert((n, k), mask.clone());
-        mask
-    } else {
-        // Fallback if Mutex is poisoned
-        generate_avoidance_mask(n, k)
+    while newr != 0 {
+        let quotient = r / newr;
+        let temp_t = t - quotient * newt;
+        t = newt;
+        newt = temp_t;
+        let temp_r = r - quotient * newr;
+        r = newr;
+        newr = temp_r;
     }
+
+    if r > 1 {
+        panic!("a is not invertible modulo m");
+    }
+
+    if t < 0 {
+        t += m;
+    }
+    t
 }
 
-/// Checks if adding the element at `new_idx` completes a `k`-term progression.
-fn forms_k_progression(mask: &[bool], new_idx: usize, k: usize) -> bool {
-    if k < 3 {
-        return false;
+/// Generates the 4 geometric generator neighbors for a node `x` in the Schreier Graph G_d.
+/// N must be 2^(d-1). The generators are: 3x, 3x-1, 3^(-1)x, 3^(-1)(x+1) mod N.
+pub fn get_schreier_neighbors(x: usize, n: usize) -> Vec<usize> {
+    if n < 2 {
+        return vec![];
     }
     
-    let max_d = new_idx / (k - 1);
-    for d in 1..=max_d {
-        let mut count = 0;
-        for i in 0..k {
-            let idx = new_idx - i * d;
-            if mask[idx] {
-                count += 1;
-            }
-        }
-        if count == k {
-            return true;
-        }
-    }
-    false
-}
-
-/// Greedily constructs a maximal subset of {0..n-1} avoiding `k`-term progressions.
-fn generate_avoidance_mask(n: usize, k: usize) -> Vec<bool> {
-    let mut mask = vec![false; n];
-    for i in 0..n {
-        mask[i] = true;
-        if forms_k_progression(&mask, i, k) {
-            mask[i] = false; // Banned by the Discrete Spectral Oracle
-        }
-    }
-    mask
-}
-
-/// Applies the discrete spectral mask in-place to enforce sparsity.
-pub fn apply_adelic_mask(array: &mut [f64]) {
-    let n = array.len();
-    if n == 0 {
-        return;
-    }
-    // Avoid 4-term scaling sequences (as defined by the Adelic Spectral Zeta theory)
-    let mask = get_adelic_mask(n, 4);
-    for i in 0..n {
-        if !mask[i] {
-            array[i] = 0.0;
-        }
-    }
+    let x_i64 = x as i64;
+    let n_i64 = n as i64;
+    
+    let inv3 = mod_inverse(3, n_i64);
+    
+    let n1 = (3 * x_i64).rem_euclid(n_i64) as usize;
+    let n2 = (3 * x_i64 - 1).rem_euclid(n_i64) as usize;
+    let n3 = (inv3 * x_i64).rem_euclid(n_i64) as usize;
+    let n4 = (inv3 * (x_i64 + 1)).rem_euclid(n_i64) as usize;
+    
+    let mut neighbors = vec![n1, n2, n3, n4];
+    
+    // The graph must be loopless (x != y), and we deduplicate multiple edges
+    neighbors.retain(|&y| y != x);
+    neighbors.sort_unstable();
+    neighbors.dedup();
+    
+    neighbors
 }
 
 #[cfg(test)]
@@ -83,32 +62,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_avoidance() {
-        let mask = generate_avoidance_mask(50, 4);
-        // Verify no 4-term arithmetic progression exists
-        for d in 1..=50/3 {
-            for a in 0..50 {
-                if a + 3*d < 50 {
-                    assert!(
-                        !(mask[a] && mask[a+d] && mask[a+2*d] && mask[a+3*d]),
-                        "Found 4-term progression: {}, {}, {}, {}", a, a+d, a+2*d, a+3*d
-                    );
-                }
-            }
-        }
+    fn test_mod_inverse() {
+        assert_eq!(mod_inverse(3, 8), 3); // 3 * 3 = 9 = 1 mod 8
+        assert_eq!(mod_inverse(3, 16), 11); // 3 * 11 = 33 = 1 mod 16
     }
     
     #[test]
-    fn test_apply_mask() {
-        let mut data = vec![1.0; 10];
-        apply_adelic_mask(&mut data);
-        let mask = get_adelic_mask(10, 4);
-        for i in 0..10 {
-            if mask[i] {
-                assert_eq!(data[i], 1.0);
-            } else {
-                assert_eq!(data[i], 0.0);
-            }
-        }
+    fn test_schreier_neighbors() {
+        let neighbors = get_schreier_neighbors(1, 8);
+        assert!(!neighbors.contains(&1));
     }
 }

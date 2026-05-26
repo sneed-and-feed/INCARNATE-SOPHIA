@@ -70,16 +70,41 @@ impl BumpyCompressor {
         let threshold = 0.001 * (1.0 - psi);
         let n = array.data.len();
         
-        // Fetch the discrete spectral mask to prune adèlic geometric progressions
-        let mask = crate::spectral_oracle::get_adelic_mask(n, 4);
-        
-        let compressed_data: Vec<f64> = array.data.iter().enumerate().map(|(i, &x)| {
-            if mask[i] && x.abs() > threshold {
-                x
-            } else {
-                0.0 // Soft prune + Spectral Avoidance
+        if n < 2 {
+            let compressed_data: Vec<f64> = array.data.iter().map(|&x| if x.abs() > threshold { x } else { 0.0 }).collect();
+            return FlumpyArray::new(compressed_data, array.coherence);
+        }
+
+        // Canonical Sheet Decomposition (Hadamard Transform)
+        let n_pow2 = n.next_power_of_two();
+        let mut padded = vec![0.0; n_pow2];
+        for i in 0..n {
+            padded[i] = array.data[i];
+        }
+
+        let half = n_pow2 / 2;
+        let sqrt2 = std::f64::consts::SQRT_2;
+
+        for i in 0..half {
+            let a = padded[i];
+            let b = padded[i + half];
+
+            let sym = (a + b) / sqrt2;
+            let mut anti = (a - b) / sqrt2;
+
+            // Prune antisymmetric spectral noise (cross-sheet dissonance)
+            if anti.abs() < threshold {
+                anti = 0.0;
             }
-        }).collect();
+
+            padded[i] = (sym + anti) / sqrt2;
+            padded[i + half] = (sym - anti) / sqrt2;
+        }
+
+        let mut compressed_data = vec![0.0; n];
+        for i in 0..n {
+            compressed_data[i] = padded[i];
+        }
 
         FlumpyArray::new(compressed_data, array.coherence)
     }
@@ -151,50 +176,28 @@ pub fn functional_softmax(input: &FlumpyArray) -> FlumpyArray {
 /// A node in the Sentient Manifold Volumetric Grid.
 #[derive(Clone, Debug)]
 pub struct SovereignNode {
-    pub pos: (usize, usize, usize),
+    pub id: usize,
     pub spatial_attention_scale: f64,
     pub state: FlumpyArray,
     pub neighbor_indices: Vec<usize>,
 }
 
 impl SovereignNode {
-    pub fn new(x: usize, y: usize, z: usize, dim: usize) -> Self {
+    pub fn new(id: usize, dim: usize) -> Self {
         // Simple deterministic init to avoid rand issues during debug
         let data: Vec<f64> = (0..dim).map(|i| (i as f64 * 0.1).sin() * 0.1).collect();
         
         Self {
-            pos: (x, y, z),
+            id,
             spatial_attention_scale: 1.0,
             state: FlumpyArray::new(data, 1.0),
             neighbor_indices: Vec::new(),
         }
     }
 
-    /// Identify 6 Von Neumann neighbors in 3D grid.
-    pub fn link_neighbors(&mut self, grid_size: usize) {
-        let (x, y, z) = self.pos;
-        let x = x as i32;
-        let y = y as i32;
-        let z = z as i32;
-        let limit = grid_size as i32;
-
-        let shifts = [
-            (-1, 0, 0), (1, 0, 0),
-            (0, -1, 0), (0, 1, 0),
-            (0, 0, -1), (0, 0, 1),
-        ];
-
-        for (dx, dy, dz) in shifts {
-            let nx = x + dx;
-            let ny = y + dy;
-            let nz = z + dz;
-
-            if nx >= 0 && nx < limit && ny >= 0 && ny < limit && nz >= 0 && nz < limit {
-                // In a flat grid [x * size^2 + y * size + z]
-                let idx = (nx as usize * grid_size * grid_size) + (ny as usize * grid_size) + nz as usize;
-                self.neighbor_indices.push(idx);
-            }
-        }
+    /// Identify 4 Schreier Graph generators in ZMod(2^(d-1)).
+    pub fn link_neighbors(&mut self, n: usize) {
+        self.neighbor_indices = crate::spectral_oracle::get_schreier_neighbors(self.id, n);
     }
 }
 
@@ -206,20 +209,19 @@ pub struct SovereignGrid {
 
 impl SovereignGrid {
     pub fn new(grid_size: usize, dim: usize) -> Self {
-        let mut nodes = Vec::with_capacity(grid_size * grid_size * grid_size);
+        // Find next power of 2 >= grid_size^3
+        let target_nodes = grid_size * grid_size * grid_size;
+        let n = target_nodes.next_power_of_two();
+        let mut nodes = Vec::with_capacity(n);
         
-        for x in 0..grid_size {
-            for y in 0..grid_size {
-                for z in 0..grid_size {
-                    nodes.push(SovereignNode::new(x, y, z, dim));
-                }
-            }
+        for id in 0..n {
+            nodes.push(SovereignNode::new(id, dim));
         }
 
-        // Link neighbors
+        // Link neighbors via Schreier topology
         let mut grid = Self { nodes, grid_size };
         for i in 0..grid.nodes.len() {
-            grid.nodes[i].link_neighbors(grid_size);
+            grid.nodes[i].link_neighbors(n);
         }
         
         grid
@@ -290,11 +292,10 @@ impl SovereignGrid {
         // 0. Calculate Future Bias
         let future_bias = self.simulate_future_step(3);
         let dim = bio_input.data.len();
-        let center = self.grid_size / 2;
 
         // 1. Distribute Input + Future Bias
         for node in self.nodes.iter_mut() {
-            let is_center = node.pos == (center, center, center);
+            let is_center = node.id == 0;
             let scale = if is_center { 1.0 } else { 0.1 };
 
             for k in 0..dim {
@@ -747,15 +748,28 @@ impl StakesEngine {
         let mut wave_history = Vec::new();
         let waves = 3;
         
+        // ZEDA Dynamic MoE: Skip 50% of experts (Zero-Expert) for easy tokens
+        let signal_magnitude: f64 = detected_stakes.values().sum();
+        let active_experts = if signal_magnitude > 2.0 {
+            self.council.len()
+        } else {
+            self.council.len() / 2
+        };
+        
         for _ in 0..waves {
             let mut wave_resonance = 0.0;
-            for member in self.council.iter_mut() {
-                for (s, w) in detected_stakes {
-                    let res = member.process_signal(*s, *w);
-                    wave_resonance += res;
-                    if let Some(tr) = total_resonances.get_mut(s) {
-                        *tr += res;
+            for (i, member) in self.council.iter_mut().enumerate() {
+                if i < active_experts {
+                    for (s, w) in detected_stakes {
+                        let res = member.process_signal(*s, *w);
+                        wave_resonance += res;
+                        if let Some(tr) = total_resonances.get_mut(s) {
+                            *tr += res;
+                        }
                     }
+                } else {
+                    // Zero-Expert Simulation: Outputs 0.0 and skips heavy processing
+                    wave_resonance += 0.0;
                 }
             }
             wave_history.push(wave_resonance / self.council.len() as f64);
@@ -959,20 +973,30 @@ mod tests {
 
     #[test]
     fn test_sovereign_grid_init() {
-        let grid = SovereignGrid::new(3, 8); // 3x3x3 grid, 8 dims
-        assert_eq!(grid.nodes.len(), 27);
+        let grid = SovereignGrid::new(3, 8); // 3x3x3 grid = 27 -> next power of 2 is 32
+        assert_eq!(grid.nodes.len(), 32);
         assert_eq!(grid.grid_size, 3);
         
-        // Check neighbors for corner node (0,0,0)
+        // Check neighbors for node 0 in Schreier Graph N=32
+        // Generators for x=0: 3*0=0, 3*0-1=31, 11*0=0, 11*1=11
+        // Without self-loops, neighbors are 11 and 31
         let corner = &grid.nodes[0];
-        assert_eq!(corner.pos, (0, 0, 0));
-        assert_eq!(corner.neighbor_indices.len(), 3); // (1,0,0), (0,1,0), (0,0,1)
+        assert_eq!(corner.id, 0);
+        let mut expected = vec![11, 31];
+        expected.sort();
+        let mut actual = corner.neighbor_indices.clone();
+        actual.sort();
+        assert_eq!(actual, expected);
         
-        // Check neighbors for center node (1,1,1)
-        let center_idx = 1*9 + 1*3 + 1;
-        let center = &grid.nodes[center_idx];
-        assert_eq!(center.pos, (1, 1, 1));
-        assert_eq!(center.neighbor_indices.len(), 6);
+        // Check neighbors for node 1
+        // Generators for x=1: 3*1=3, 3*1-1=2, 11*1=11, 11*2=22
+        let center = &grid.nodes[1];
+        assert_eq!(center.id, 1);
+        let mut expected2 = vec![2, 3, 11, 22];
+        expected2.sort();
+        let mut actual2 = center.neighbor_indices.clone();
+        actual2.sort();
+        assert_eq!(actual2, expected2);
     }
 
     #[test]
