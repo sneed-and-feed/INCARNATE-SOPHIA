@@ -10,7 +10,7 @@ pub const LUOSHU_INVARIANT: f64 = 15.0;
 pub const COHERENCE_THRESHOLD: f64 = 0.999;
 pub const PSI_CRITICAL: f64 = 0.18;
 pub const TAU_SOVEREIGN: f64 = 1.618033988749895; // Golden Ratio
-pub const U_THRESHOLD: f64 = 0.05; // Utility threshold for action inhibition
+pub const U_THRESHOLD: f64 = 0.005; // Utility threshold for action inhibition
 
 #[derive(Clone, Debug)]
 pub struct FlumpyArray {
@@ -222,6 +222,18 @@ impl SovereignGrid {
         let mut grid = Self { nodes, grid_size };
         for i in 0..grid.nodes.len() {
             grid.nodes[i].link_neighbors(n);
+        }
+        
+        // --- PERRON-FROBENIUS INTEGRATION ---
+        // Compute the strictly positive principal eigenvector
+        let adj_matrix = crate::spectral_oracle::build_adjacency_matrix(n);
+        let pf_vector = crate::spectral_oracle::compute_pf_eigenvector(&adj_matrix, 50);
+        
+        // Apply PF centrality as the structural spatial_attention_scale
+        for i in 0..grid.nodes.len() {
+            if i < pf_vector.len() {
+                grid.nodes[i].spatial_attention_scale = pf_vector[i];
+            }
         }
         
         grid

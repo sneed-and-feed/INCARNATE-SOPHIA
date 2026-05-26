@@ -57,6 +57,58 @@ pub fn get_schreier_neighbors(x: usize, n: usize) -> Vec<usize> {
     neighbors
 }
 
+/// Builds the explicit unweighted adjacency matrix for the underlying Schreier graph.
+pub fn build_adjacency_matrix(n: usize) -> Vec<Vec<f64>> {
+    let mut matrix = vec![vec![0.0; n]; n];
+    for i in 0..n {
+        let neighbors = get_schreier_neighbors(i, n);
+        for &j in &neighbors {
+            matrix[i][j] = 1.0;
+        }
+    }
+    matrix
+}
+
+/// Computes the Perron-Frobenius principal eigenvector via power iteration.
+/// Returns the vector normalized so that its mean is 1.0.
+pub fn compute_pf_eigenvector(matrix: &[Vec<f64>], iterations: usize) -> Vec<f64> {
+    let n = matrix.len();
+    if n == 0 { return vec![]; }
+    
+    // Start with uniform strictly positive vector
+    let mut v = vec![1.0; n];
+    
+    for _ in 0..iterations {
+        let mut next_v = vec![0.0; n];
+        let mut norm = 0.0;
+        for i in 0..n {
+            for j in 0..n {
+                next_v[i] += matrix[i][j] * v[j];
+            }
+            norm += next_v[i] * next_v[i];
+        }
+        
+        let norm = norm.sqrt();
+        if norm > 1e-9 {
+            for val in next_v.iter_mut() {
+                *val /= norm;
+            }
+        }
+        v = next_v;
+    }
+    
+    // Normalize so the average value is 1.0 (to preserve spatial scale magnitudes)
+    let sum: f64 = v.iter().sum();
+    let avg = if sum > 0.0 { sum / n as f64 } else { 1.0 };
+    if avg > 1e-9 {
+        for val in v.iter_mut() {
+            *val /= avg;
+        }
+    }
+    
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
