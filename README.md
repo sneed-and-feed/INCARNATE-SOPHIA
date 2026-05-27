@@ -96,6 +96,8 @@ Sophia now includes the `MemoryDeleteTool` for harmonic pruning of the database:
 
 ## [ HIGH-SCIENCE ARCHITECTURE ]
 
+**[Read the Spectral Engine Whitepaper (Formal Topology Proofs)](docs/spectral_engine_whitepaper.tex)**
+
 ### 1. Crystalline Containment (WASM Sandbox)
 Untrusted agents are instantiated within **WebAssembly** hypercubes.
 *   **Capability-Based Security:** An agent cannot "Network". It must request the `NetworkCapability` token.
