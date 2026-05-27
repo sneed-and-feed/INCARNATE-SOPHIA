@@ -63,15 +63,14 @@ impl fmt::Display for FlumpyArray {
     }
 }
 
-pub struct BumpyCompressor;
+pub struct DiracDecomposition;
 
-impl BumpyCompressor {
-    pub fn compress(array: &FlumpyArray, psi: f64) -> FlumpyArray {
-        let threshold = 0.001 * (1.0 - psi);
+impl DiracDecomposition {
+    pub fn deformed_u(array: &FlumpyArray, c_norm: f64) -> FlumpyArray {
         let n = array.data.len();
         
         if n < 2 {
-            let compressed_data: Vec<f64> = array.data.iter().map(|&x| if x.abs() > threshold { x } else { 0.0 }).collect();
+            let compressed_data: Vec<f64> = array.data.iter().map(|&x| x * c_norm).collect();
             return FlumpyArray::new(compressed_data, array.coherence);
         }
 
@@ -92,21 +91,15 @@ impl BumpyCompressor {
             let sym = (a + b) / sqrt2;
             let mut anti = (a - b) / sqrt2;
 
-            // Prune antisymmetric spectral noise (cross-sheet dissonance)
-            if anti.abs() < threshold {
-                anti = 0.0;
-            }
+            // Phase Deformation (off the critical line scaling)
+            anti *= c_norm;
 
             padded[i] = (sym + anti) / sqrt2;
             padded[i + half] = (sym - anti) / sqrt2;
         }
 
-        let mut compressed_data = vec![0.0; n];
-        for i in 0..n {
-            compressed_data[i] = padded[i];
-        }
-
-        FlumpyArray::new(compressed_data, array.coherence)
+        padded.truncate(n);
+        FlumpyArray::new(padded, array.coherence)
     }
 }
 
@@ -300,7 +293,7 @@ impl SovereignGrid {
     }
 
     /// Execute one step of grid dynamics with RETROCAUSAL FEEDBACK and Bakry-Émery steering.
-    pub fn process_step(&mut self, bio_input: &FlumpyArray, is_sleep: bool) -> FlumpyArray {
+    pub fn process_step(&mut self, bio_input: &FlumpyArray, is_sleep: bool, _c_norm: f64) -> FlumpyArray {
         // 0. Calculate Future Bias
         let future_bias = self.simulate_future_step(3);
         let dim = bio_input.data.len();
@@ -548,10 +541,10 @@ impl SovereignGrid {
         }
         let empty_input = FlumpyArray::new(vec![0.0; dim], 1.0);
         for _ in 0..n_passes {
-            self.process_step(&empty_input, true);
-            // Apply Bumpy Compression with psi = 0.5
+            self.process_step(&empty_input, true, 0.85);
+            // Apply Dirac Decomposition with c_norm = 0.85 for warm entropy shedding
             for node in self.nodes.iter_mut() {
-                node.state = BumpyCompressor::compress(&node.state, 0.5);
+                node.state = DiracDecomposition::deformed_u(&node.state, 0.85);
             }
         }
     }
@@ -704,6 +697,7 @@ pub struct StakesEngine {
     pub identity_strength: f64,
     pub qualia_intensity: f64,
     pub council: Vec<CouncilMember>,
+    pub current_c_norm: f64,
 }
 
 impl StakesEngine {
@@ -758,10 +752,11 @@ impl StakesEngine {
             identity_strength: 0.8,
             qualia_intensity: 0.4,
             council,
+            current_c_norm: 1.0,
         }
     }
 
-    pub fn deliberate(&mut self, _input_signal: &str, detected_stakes: &std::collections::HashMap<StakeType, f64>) -> f64 {
+    pub fn deliberate(&mut self, _input_signal: &str, detected_stakes: &std::collections::HashMap<StakeType, f64>) -> (f64, f64) {
         // 1. Update active stakes (Decay older ones)
         for val in self.stakes.values_mut() {
             *val = (*val * 0.9).max(0.1);
@@ -818,7 +813,14 @@ impl StakesEngine {
         let total_stake_sum: f64 = self.stakes.values().sum();
         let agency_score = (total_stake_sum / self.stakes.len() as f64) * self.identity_strength;
         
-        agency_score
+        let c_norm = if agency_score > 0.75 {
+            0.85 // Warm entropy shedding
+        } else {
+            1.0 // Unitary critical line
+        };
+        self.current_c_norm = c_norm;
+        
+        (agency_score, c_norm)
     }
 
     pub fn get_personality_blend(&self) -> &'static str {
@@ -1045,7 +1047,7 @@ mod tests {
     fn test_grid_process_step() {
         let mut grid = SovereignGrid::new(3, 8);
         let input = FlumpyArray::new(vec![1.0; 8], 1.0);
-        let output = grid.process_step(&input, false);
+        let output = grid.process_step(&input, false, 1.0);
         
         assert_eq!(output.data.len(), 8);
         // Output should be roughly the input distributed over the grid + flux
@@ -1066,14 +1068,14 @@ mod tests {
         detected.insert(StakeType::Technical, 0.8);
         detected.insert(StakeType::Purpose, 0.9);
 
-        let agency_initial = stakes.deliberate("Fix the bug", &detected);
+        let (agency_initial, _) = stakes.deliberate("Fix the bug", &detected);
         assert!(agency_initial > 0.0);
         
         // Emotional resonance should have moved from 0.5
         assert!(stakes.emotional_resonance != 0.5);
 
         // Run another wave
-        let agency_next = stakes.deliberate("Optimize the kernel", &detected);
+        let (agency_next, _) = stakes.deliberate("Optimize the kernel", &detected);
         // It should be different (due to history and resonance shifts)
         assert!(agency_next != agency_initial);
     }
@@ -1181,7 +1183,7 @@ mod tests {
             grid.nodes[n2_idx].spatial_attention_scale = 10.0; // Higher potential V
 
             // Run one simulation step
-            let _ = grid.process_step(&FlumpyArray::new(vec![0.0; 8], 1.0), false);
+            let _ = grid.process_step(&FlumpyArray::new(vec![0.0; 8], 1.0), false, 1.0);
 
             // n1 (lower potential V=1.0) should receive MUCH more state value than n2 (higher potential V=10.0)
             assert!(grid.nodes[n1_idx].state.data[0] > grid.nodes[n2_idx].state.data[0]);

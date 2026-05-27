@@ -1294,7 +1294,7 @@ impl Agent {
                         detected.insert(crate::sneed_engine::StakeType::Knowledge, 0.5);
                     }
 
-                    let agency_score = {
+                    let (agency_score, _) = {
                         let mut stakes = self.stakes.lock().await;
                         stakes.deliberate(&message.content, &detected)
                     };
@@ -2309,11 +2309,12 @@ impl Agent {
     /// Calculate Sovereign Utility for the current iteration.
     async fn calculate_sovereign_utility(&self, iteration: usize) -> (bool, f64) {
         let stakes_val = self.stakes.lock().await.emotional_resonance;
+        let c_norm = self.stakes.lock().await.current_c_norm;
         let bio_input = crate::sneed_engine::FlumpyArray::new(vec![stakes_val; 8], 1.0);
         
         let coherence = {
             let mut grid = self.grid.lock().await;
-            let _ = grid.process_step(&bio_input, false);
+            let _ = grid.process_step(&bio_input, false, c_norm);
             grid.calculate_spectral_coherence()
         };
         

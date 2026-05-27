@@ -49,7 +49,7 @@ impl Tool for SneedTool {
 
         let mut engine = StakesEngine::new();
         let detected = StakesEngine::detect_stakes(query);
-        let _agency = engine.deliberate(query, &detected);
+        let (_agency, c_norm) = engine.deliberate(query, &detected);
         
         // Run a SovereignGrid step simulation
         let mut grid = crate::sneed_engine::SovereignGrid::new(3, 8);
@@ -67,7 +67,7 @@ impl Tool for SneedTool {
             bio_data[idx] = (bio_data[idx] + val).min(1.0);
         }
         let bio_input = crate::sneed_engine::FlumpyArray::new(bio_data, 1.0);
-        let _out = grid.process_step(&bio_input, false);
+        let _out = grid.process_step(&bio_input, false, c_norm);
         
         let (coherence, alpha, sigma) = grid.get_spectral_metrics();
         
