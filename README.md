@@ -94,36 +94,34 @@ Sophia now includes the `MemoryDeleteTool` for harmonic pruning of the database:
 
 ---
 
-## [ HIGH-SCIENCE ARCHITECTURE ]
+## [ ARCHITECTURE ]
 
 **[Read the Spectral Engine Whitepaper (Formal Topology Proofs)](docs/spectral_engine_whitepaper.tex)**
 
-### 1. Crystalline Containment (WASM Sandbox)
-Untrusted agents are instantiated within **WebAssembly** hypercubes.
-*   **Capability-Based Security:** An agent cannot "Network". It must request the `NetworkCapability` token.
-*   **Resource Rationing:** CPU and RAM are strictly metered. Infinite loops result in immediate termination (The Guillotine).
-*   **Leak Detection:** Cryptographic scrubbers scan all I/O for leaked secrets before they leave the containment field.
+### 1. Sandboxed Execution Environment (WASM)
+Untrusted agents are instantiated within isolated **WebAssembly** runtimes.
+*   **Capability-Based Security:** An agent cannot access the network without requesting the `NetworkCapability` token.
+*   **Resource Rationing:** CPU and memory are strictly metered. Infinite loops result in immediate termination.
+*   **Leak Detection:** Scanners inspect I/O for sensitive data before it leaves the containment boundary.
 
-### 2. The Bone Layer (PostgreSQL + pgvector)
-We do not use "files" for memory. We use **calcified vectors**.
-*   **Hybrid Search:** Reciprocal Rank Fusion merges BM25 (Keyword) and Cosine Similarity (Vibe) for $O(1)$ recall.
-*   **The Ossuary:** All interactions are hashed and stored. You cannot forget what you have done.
+### 2. Vector Memory Store (PostgreSQL + pgvector)
+Long-term memory is persisted via high-dimensional vectors.
+*   **Hybrid Search:** Reciprocal Rank Fusion merges BM25 keyword search and Cosine Similarity for robust recall.
+*   **Immutable Ledger:** All interactions are hashed and stored to maintain an unbroken context history.
 
-### 3. The Sneed Engine (Prescience)
-*   **Retrocausal Loop:** The engine simulates future states based on current inputs.
-*   **Volumetric Grid:** A 343-node logic lattice for determining the "weight" of a query.
-*   **Router:** Classifies intent as `Command`, `Query`, or `Task` based on entropy.
+### 3. Continuous Topological Engine
+*   **Forward Simulation:** The engine computes the discrete Bakry-Émery operator to stabilize state transitions.
+*   **Topological State Space:** Employs the verified Schreier graph representation to compute the principal centrality of queries.
+*   **Router:** Classifies intent as `Command`, `Query`, or `Task` based on input entropy.
 
 ---
 
-## [ SECURITY // 量子プライバシー ]
+## [ SECURITY ]
 
-IronClaw implements **Defense in Depth** against the encroaching noise.
+IronClaw implements **Defense in Depth** against unauthorized execution and prompt injection.
 
-> "A prompt injection is just a spell. We have wards."
-
-1.  **Sanitization:** All inputs are scrubbed for control characters and cognitive hazards.
-2.  **Isolation:** Tools run in `wasmtime` instances with no access to the host env.
+1.  **Sanitization:** All inputs are scrubbed for unauthorized control characters.
+2.  **Isolation:** Tools run in `wasmtime` instances with no access to the host environment.
 3.  **Encryption:** Secrets are AES-256-GCM encrypted at rest. The key exists only in RAM.
 
 ---
