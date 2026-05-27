@@ -300,7 +300,7 @@ impl SovereignGrid {
     }
 
     /// Execute one step of grid dynamics with RETROCAUSAL FEEDBACK and Bakry-Émery steering.
-    pub fn process_step(&mut self, bio_input: &FlumpyArray) -> FlumpyArray {
+    pub fn process_step(&mut self, bio_input: &FlumpyArray, is_sleep: bool) -> FlumpyArray {
         // 0. Calculate Future Bias
         let future_bias = self.simulate_future_step(3);
         let dim = bio_input.data.len();
@@ -342,7 +342,8 @@ impl SovereignGrid {
 
         for (i, flux) in fluxes.into_iter().enumerate() {
             let node = &mut self.nodes[i];
-            let rate = (0.1 / TAU_SOVEREIGN) * node.spatial_attention_scale;
+            let rate_multiplier = if is_sleep { 0.01 } else { 0.1 };
+            let rate = (rate_multiplier / TAU_SOVEREIGN) * node.spatial_attention_scale;
             for k in 0..dim {
                 node.state.data[k] += flux[k] * rate * 0.1;
             }
@@ -532,6 +533,27 @@ impl SovereignGrid {
         let normalized_entropy = entropy / max_entropy;
         
         1.8 + (1.0 - normalized_entropy) * 1.2
+    }
+
+    /// [Language Models Need Sleep]
+    /// Sleep phase: perform N offline recurrent passes over the accumulated state
+    /// to consolidate fast weights before clearing or continuing.
+    pub fn sleep_consolidation(&mut self, n_passes: usize) {
+        if self.nodes.is_empty() {
+            return;
+        }
+        let dim = self.nodes[0].state.data.len();
+        if dim == 0 {
+            return;
+        }
+        let empty_input = FlumpyArray::new(vec![0.0; dim], 1.0);
+        for _ in 0..n_passes {
+            self.process_step(&empty_input, true);
+            // Apply Bumpy Compression with psi = 0.5
+            for node in self.nodes.iter_mut() {
+                node.state = BumpyCompressor::compress(&node.state, 0.5);
+            }
+        }
     }
 }
 
@@ -1023,7 +1045,7 @@ mod tests {
     fn test_grid_process_step() {
         let mut grid = SovereignGrid::new(3, 8);
         let input = FlumpyArray::new(vec![1.0; 8], 1.0);
-        let output = grid.process_step(&input);
+        let output = grid.process_step(&input, false);
         
         assert_eq!(output.data.len(), 8);
         // Output should be roughly the input distributed over the grid + flux
@@ -1159,7 +1181,7 @@ mod tests {
             grid.nodes[n2_idx].spatial_attention_scale = 10.0; // Higher potential V
 
             // Run one simulation step
-            let _ = grid.process_step(&FlumpyArray::new(vec![0.0; 8], 1.0));
+            let _ = grid.process_step(&FlumpyArray::new(vec![0.0; 8], 1.0), false);
 
             // n1 (lower potential V=1.0) should receive MUCH more state value than n2 (higher potential V=10.0)
             assert!(grid.nodes[n1_idx].state.data[0] > grid.nodes[n2_idx].state.data[0]);

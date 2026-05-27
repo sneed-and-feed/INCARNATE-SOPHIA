@@ -67,7 +67,7 @@ impl Tool for SneedTool {
             bio_data[idx] = (bio_data[idx] + val).min(1.0);
         }
         let bio_input = crate::sneed_engine::FlumpyArray::new(bio_data, 1.0);
-        let _out = grid.process_step(&bio_input);
+        let _out = grid.process_step(&bio_input, false);
         
         let (coherence, alpha, sigma) = grid.get_spectral_metrics();
         

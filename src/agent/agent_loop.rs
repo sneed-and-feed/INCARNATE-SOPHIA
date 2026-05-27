@@ -686,6 +686,15 @@ impl Agent {
                     )
                     .await;
 
+                // --- Language Models Need Sleep ---
+                // Perform N offline recurrent passes over the accumulated context
+                // before discarding the attention cache.
+                {
+                    let n_passes = 4; // Using N=4 from the paper's GSM-Infinite experiments
+                    tracing::info!("Entering sleep phase for memory consolidation (N={}) before eviction", n_passes);
+                    self.grid.lock().await.sleep_consolidation(n_passes);
+                }
+
                 let compactor = ContextCompactor::new(self.llm().clone());
                 if let Err(e) = compactor
                     .compact(thread, strategy, self.workspace().map(|w| w.as_ref()))
@@ -694,8 +703,8 @@ impl Agent {
                     tracing::warn!("Auto-compaction failed: {}", e);
                 } else {
                     let fresh_grid = crate::sneed_engine::SovereignGrid::new(3, 8);
-                    self.grid.lock().await.merge_isometrically(&fresh_grid, 0.5);
-                    tracing::info!("Sovereign grid merged isometrically with decay 0.5 during auto-compaction");
+                    self.grid.lock().await.merge_isometrically(&fresh_grid, 0.15);
+                    tracing::info!("Sovereign grid merged isometrically with decay 0.15 during auto-compaction");
                 }
             }
         }
@@ -2304,7 +2313,7 @@ impl Agent {
         
         let coherence = {
             let mut grid = self.grid.lock().await;
-            let _ = grid.process_step(&bio_input);
+            let _ = grid.process_step(&bio_input, false);
             grid.calculate_spectral_coherence()
         };
         
