@@ -772,12 +772,15 @@ impl StakesEngine {
         let waves = 3;
         
         // ZEDA Dynamic MoE: Skip 50% of experts (Zero-Expert) for easy tokens
-        let signal_magnitude: f64 = detected_stakes.values().sum();
-        let active_experts = if signal_magnitude > 2.0 {
-            self.council.len()
-        } else {
-            self.council.len() / 2
-        };
+        // let signal_magnitude: f64 = detected_stakes.values().sum();
+        // let active_experts = if signal_magnitude > 2.0 {
+        //     self.council.len()
+        // } else {
+        //     self.council.len() / 2
+        // };
+        
+        // NO MOE: bypass all experts
+        let active_experts = 0;
         
         for _ in 0..waves {
             let mut wave_resonance = 0.0;
