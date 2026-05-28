@@ -2153,6 +2153,16 @@ impl Store {
         Ok(row.and_then(|r| r.get::<_, Option<String>>(0)))
     }
 
+    pub async fn delete_conversation_messages(&self, conversation_id: Uuid) -> Result<(), DatabaseError> {
+        let conn = self.conn().await?;
+        conn.execute(
+            "DELETE FROM conversation_messages WHERE conversation_id = $1",
+            &[&conversation_id],
+        )
+        .await?;
+        Ok(())
+    }
+
     /// Load messages for a conversation with cursor-based pagination.
     ///
     /// Returns `(messages_oldest_first, has_more)`.

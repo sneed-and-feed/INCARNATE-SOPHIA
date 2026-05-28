@@ -74,7 +74,7 @@ use crate::channels::web::platform::static_files::{
 use crate::channels::web::features::chat::{
     chat_approval_handler, chat_auth_cancel_handler, chat_auth_token_handler, chat_events_handler,
     chat_gate_resolve_handler, chat_history_handler, chat_new_thread_handler, chat_send_handler,
-    chat_threads_handler, chat_ws_handler,
+    chat_threads_handler, chat_ws_handler, chat_upload_handler, chat_rollback_handler,
 };
 use crate::channels::web::features::extensions::{
     extensions_activate_handler, extensions_install_handler, extensions_list_handler,
@@ -178,10 +178,12 @@ pub async fn start_server(
         .route("/api/chat/auth-cancel", post(chat_auth_cancel_handler))
         .route("/api/chat/approval", post(chat_approval_handler))
         .route("/api/chat/events", get(chat_events_handler))
+        .route("/api/chat/upload", post(chat_upload_handler))
         .route("/api/chat/ws", get(chat_ws_handler))
         .route("/api/chat/history", get(chat_history_handler))
         .route("/api/chat/threads", get(chat_threads_handler))
         .route("/api/chat/thread/new", post(chat_new_thread_handler))
+        .route("/api/chat/rollback", post(chat_rollback_handler))
         // Memory
         .route("/api/memory/tree", get(memory_tree_handler))
         .route("/api/memory/list", get(memory_list_handler))

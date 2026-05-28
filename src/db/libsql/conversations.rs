@@ -686,6 +686,20 @@ impl ConversationStore for LibSqlBackend {
             None => Ok(None),
         }
     }
+
+    async fn delete_conversation_messages(
+        &self,
+        conversation_id: Uuid,
+    ) -> Result<(), DatabaseError> {
+        let conn = self.connect().await?;
+        conn.execute(
+            "DELETE FROM conversation_messages WHERE conversation_id = ?1",
+            params![conversation_id.to_string()],
+        )
+        .await
+        .map_err(|e| DatabaseError::Query(e.to_string()))?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
