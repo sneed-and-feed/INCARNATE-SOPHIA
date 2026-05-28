@@ -103,3 +103,7 @@ pub mod prelude {
     pub use ironclaw_llm::LlmProvider;
     pub use ironclaw_safety::{SanitizedOutput, Sanitizer};
 }
+
+pub mod sneed_engine;
+pub mod spectral_oracle;
+pub mod operators;
