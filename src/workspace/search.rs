@@ -11,7 +11,7 @@
 //! - PostgreSQL / libSQL full-text search
 //! - pgvector / libsql_vector cosine similarity search
 
-use std::collections::HashMap;
+use rustc_hash::FxHashMap;
 
 use uuid::Uuid;
 
@@ -222,7 +222,7 @@ pub fn reciprocal_rank_fusion(
         vector_rank: Option<u32>,
     }
 
-    let mut chunk_scores: HashMap<Uuid, ChunkInfo> = HashMap::new();
+    let mut chunk_scores: FxHashMap<Uuid, ChunkInfo> = FxHashMap::default();
 
     // Process FTS results
     for result in fts_results {
@@ -326,7 +326,7 @@ pub fn weighted_score_fusion(
         vector_rank: Option<u32>,
     }
 
-    let mut chunk_scores: HashMap<Uuid, ChunkInfo> = HashMap::new();
+    let mut chunk_scores: FxHashMap<Uuid, ChunkInfo> = FxHashMap::default();
 
     // Process FTS results: score = fts_weight * (1 / rank)
     for result in fts_results {

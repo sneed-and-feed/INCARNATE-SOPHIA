@@ -307,16 +307,26 @@ impl SetupWizard {
             if self.settings.llm_backend.is_none() {
                 if let Ok(b) = std::env::var("LLM_BACKEND") {
                     self.settings.llm_backend = Some(b);
-                } else if std::env::var("NEARAI_API_KEY").is_ok() {
-                    self.settings.llm_backend = Some("nearai".to_string());
-                } else if std::env::var("ANTHROPIC_API_KEY").is_ok()
-                    || std::env::var("ANTHROPIC_OAUTH_TOKEN").is_ok()
-                {
-                    self.settings.llm_backend = Some("anthropic".to_string());
-                } else if std::env::var("OPENAI_API_KEY").is_ok() {
-                    self.settings.llm_backend = Some("openai".to_string());
-                } else if std::env::var("OPENROUTER_API_KEY").is_ok() {
-                    self.settings.llm_backend = Some("openrouter".to_string());
+                } else {
+                    let mut available_keys = Vec::new();
+                    if std::env::var("NEARAI_API_KEY").is_ok() {
+                        available_keys.push("nearai");
+                    }
+                    if std::env::var("ANTHROPIC_API_KEY").is_ok()
+                        || std::env::var("ANTHROPIC_OAUTH_TOKEN").is_ok()
+                    {
+                        available_keys.push("anthropic");
+                    }
+                    if std::env::var("OPENAI_API_KEY").is_ok() {
+                        available_keys.push("openai");
+                    }
+                    if std::env::var("OPENROUTER_API_KEY").is_ok() {
+                        available_keys.push("openrouter");
+                    }
+
+                    if available_keys.len() == 1 {
+                        self.settings.llm_backend = Some(available_keys[0].to_string());
+                    }
                 }
             }
 

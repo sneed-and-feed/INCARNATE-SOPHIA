@@ -2089,6 +2089,86 @@ mod tests {
         assert_eq!(primary.active_model_name(), before_model);
     }
 
+    /// Like the set handler, the delete handler must roll back the DB deletion
+    /// (by restoring the original value) if the resulting config fails to build.
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)] // env guard must span async hot-reload flow
+    async fn settings_delete_handler_rolls_back_on_reload_failure() {
+        let _env_guard = lock_env();
+        let (state, primary, _tmp) = hot_reload_harness().await;
+        let before_model = primary.active_model_name();
+        let admin_scope = crate::tools::permissions::ADMIN_SETTINGS_USER_ID;
+        let store = state.store.as_ref().expect("store"); // dispatch-exempt: test harness
+
+        // Seed a valid value that we will try to delete
+        let target_key = "llm_custom_providers";
+        let target_value = serde_json::json!([]);
+        store
+            .set_setting(admin_scope, target_key, &target_value)
+            .await
+            .expect("seed target");
+
+        // Poison the admin-scope LLM config so any reload will fail
+        store
+            .set_setting(admin_scope, "llm_backend", &serde_json::json!("bedrock"))
+            .await
+            .expect("seed broken backend");
+        store
+            .set_setting(
+                admin_scope,
+                "bedrock_region",
+                &serde_json::json!("us-east-1"),
+            )
+            .await
+            .expect("seed region");
+        store
+            .set_setting(
+                admin_scope,
+                "bedrock_cross_region",
+                &serde_json::json!("banana"),
+            )
+            .await
+            .expect("seed invalid cross_region");
+
+        // Now the caller tries to delete `target_key`. The handler deletes it,
+        // then triggers a reload. The reload sees the poisoned bedrock config,
+        // fails, and should restore the deleted value.
+        let err = settings_delete_handler(
+            State(Arc::clone(&state)),
+            AuthenticatedUser(UserIdentity {
+                user_id: admin_scope.to_string(),
+                role: "admin".to_string(),
+                workspace_read_scopes: Vec::new(),
+            }),
+            Path(target_key.to_string()),
+            Query(SettingScopeQuery {
+                scope: Some("admin".to_string()),
+            }),
+        )
+        .await
+        .expect_err("handler must reject unbuildable LLM config");
+
+        assert_eq!(err.0, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(
+            !err.1.is_empty(),
+            "422 response body must include the reload failure reason; got empty body",
+        );
+
+        // DB rolled back to the pre-request state (was deleted -> restored).
+        let after = store
+            .get_setting(admin_scope, target_key)
+            .await
+            .expect("read");
+        assert_eq!(
+            after,
+            Some(target_value),
+            "rollback should have restored the deleted key",
+        );
+
+        // Provider chain unchanged
+        assert_eq!(primary.active_model_name(), before_model);
+    }
+
     /// Regression for the review finding that `reload_llm_after_settings_change`
     /// was reading `Config::from_db_with_toml(effective_user_id, …)`. When
     /// the write was `scope=admin`, that user_id is `__admin__`, and the

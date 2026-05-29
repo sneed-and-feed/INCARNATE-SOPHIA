@@ -492,7 +492,7 @@ pub trait ConversationStore: Send + Sync {
         &self,
         conversation_id: Uuid,
     ) -> Result<Option<String>, DatabaseError>;
-    
+
     async fn delete_conversation_messages(
         &self,
         conversation_id: Uuid,

@@ -304,7 +304,9 @@ impl ConversationStore for PgBackend {
         &self,
         conversation_id: Uuid,
     ) -> Result<(), DatabaseError> {
-        self.store.delete_conversation_messages(conversation_id).await
+        self.store
+            .delete_conversation_messages(conversation_id)
+            .await
     }
 }
 

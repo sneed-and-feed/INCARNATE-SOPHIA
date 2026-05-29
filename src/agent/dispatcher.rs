@@ -4309,88 +4309,271 @@ mod tests {
 
     // ── Permission filtering unit tests ──────────────────────────────────────
 
-    /// Disabled tools must be excluded from the LLM's tool definition list.
-    #[test]
-    fn test_permission_disabled_tool_excluded_from_definitions() {
-        use crate::tools::permissions::{PermissionState, effective_permission};
-        use ironclaw_llm::ToolDefinition;
-        use std::collections::HashMap;
+    struct ToolCapturingProvider {
+        captured_tools: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    }
 
-        let mut tool_permissions: HashMap<String, PermissionState> = HashMap::new();
-        tool_permissions.insert("shell".to_string(), PermissionState::Disabled);
+    #[async_trait]
+    impl ironclaw_llm::LlmProvider for ToolCapturingProvider {
+        fn model_name(&self) -> &str {
+            "tool-capturing"
+        }
 
-        let tool_defs = vec![
-            ToolDefinition {
-                name: "echo".to_string(),
-                description: "Echo".to_string(),
-                parameters: serde_json::json!({}),
-            },
-            ToolDefinition {
-                name: "shell".to_string(),
-                description: "Shell".to_string(),
-                parameters: serde_json::json!({}),
-            },
-        ];
+        fn cost_per_token(&self) -> (rust_decimal::Decimal, rust_decimal::Decimal) {
+            (rust_decimal::Decimal::ZERO, rust_decimal::Decimal::ZERO)
+        }
 
-        // Simulate the filtering logic from before_llm_call.
-        let filtered: Vec<_> = tool_defs
-            .into_iter()
-            .filter(|def| {
-                effective_permission(&def.name, &tool_permissions) != PermissionState::Disabled
+        async fn complete(
+            &self,
+            _request: ironclaw_llm::CompletionRequest,
+        ) -> Result<ironclaw_llm::CompletionResponse, crate::error::LlmError> {
+            Ok(ironclaw_llm::CompletionResponse {
+                content: "ok".to_string(),
+                input_tokens: 0,
+                output_tokens: 0,
+                finish_reason: ironclaw_llm::FinishReason::Stop,
+                cache_read_input_tokens: 0,
+                cache_creation_input_tokens: 0,
             })
-            .collect();
+        }
 
-        assert_eq!(filtered.len(), 1, "Disabled tool must be excluded");
-        assert_eq!(filtered[0].name, "echo");
+        async fn complete_with_tools(
+            &self,
+            request: ironclaw_llm::ToolCompletionRequest,
+        ) -> Result<ironclaw_llm::ToolCompletionResponse, crate::error::LlmError> {
+            let mut captured = self.captured_tools.lock().unwrap();
+            *captured = request.tools.into_iter().map(|t| t.name).collect();
+
+            Ok(ironclaw_llm::ToolCompletionResponse {
+                content: Some("ok".to_string()),
+                tool_calls: vec![],
+                input_tokens: 0,
+                output_tokens: 0,
+                finish_reason: ironclaw_llm::FinishReason::Stop,
+                cache_read_input_tokens: 0,
+                cache_creation_input_tokens: 0,
+                reasoning: None,
+            })
+        }
+    }
+
+    async fn setup_permission_test_agent() -> (
+        Agent,
+        Arc<tokio::sync::Mutex<crate::agent::session::Session>>,
+        Uuid,
+        std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        std::sync::Arc<crate::db::Database>,
+    ) {
+        use crate::agent::cost_guard::{CostGuard, CostGuardConfig};
+        use crate::agent::{AgentConfig, AgentDeps, ContextManager};
+        use crate::channels::ChannelManager;
+        use crate::tools::ToolRegistry;
+        use ironclaw_safety::{SafetyConfig, SafetyLayer};
+
+        let captured_tools = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let provider = Arc::new(ToolCapturingProvider {
+            captured_tools: captured_tools.clone(),
+        });
+
+        let db = Arc::new(
+            crate::db::libsql::LibSqlBackend::new_memory()
+                .await
+                .unwrap(),
+        );
+
+        let registry = Arc::new(ToolRegistry::new());
+        // Register some dummy tools to be filtered
+        registry.register_sync(Arc::new(crate::tools::core::echo::EchoTool));
+        registry.register_sync(Arc::new(crate::tools::core::shell::ShellTool));
+        registry.register_sync(Arc::new(OAuthPromptTool));
+
+        let deps = AgentDeps {
+            owner_id: "default".to_string(),
+            store: Some(db.clone() as _),
+            settings_store: Some(db.clone() as _),
+            llm: provider,
+            cheap_llm: None,
+            safety: Arc::new(SafetyLayer::new(&SafetyConfig {
+                max_output_length: 100_000,
+                injection_check_enabled: false,
+            })),
+            tools: registry,
+            workspace: None,
+            extension_manager: None,
+            skill_registry: None,
+            skill_catalog: None,
+            skills_config: crate::config::SkillsConfig::default(),
+            hooks: Arc::new(crate::agent::HookRegistry::new()),
+            auth_manager: None,
+            cost_guard: Arc::new(CostGuard::new(CostGuardConfig::default())),
+            sse_tx: None,
+            http_interceptor: None,
+            transcription: None,
+            document_extraction: None,
+            sandbox_readiness: crate::agent::routine_engine::SandboxReadiness::DisabledByConfig,
+            builder: None,
+            llm_backend: "test".to_string(),
+            tenant_rates: Arc::new(crate::tenant::TenantRateRegistry::new(4, 3)),
+        };
+
+        let agent = Agent::new(
+            AgentConfig {
+                name: "test-agent".to_string(),
+                max_parallel_jobs: 1,
+                job_timeout: Duration::from_secs(60),
+                stuck_threshold: Duration::from_secs(60),
+                repair_check_interval: Duration::from_secs(30),
+                max_repair_attempts: 1,
+                use_planning: false,
+                session_idle_timeout: Duration::from_secs(300),
+                allow_local_tools: false,
+                max_cost_per_day_cents: None,
+                max_actions_per_hour: None,
+                max_cost_per_user_per_day_cents: None,
+                max_tool_iterations: 3,
+                auto_approve_tools: false,
+                default_timezone: "UTC".to_string(),
+                max_jobs_per_user: None,
+                max_tokens_per_job: 0,
+                multi_tenant: false,
+                max_llm_concurrent_per_user: None,
+                max_jobs_concurrent_per_user: None,
+                engine_v2: false,
+            },
+            deps,
+            Arc::new(ChannelManager::new()),
+            None,
+            None,
+            None,
+            Some(Arc::new(ContextManager::new(1))),
+            None,
+        );
+
+        let session = Arc::new(tokio::sync::Mutex::new(
+            crate::agent::session::Session::new("test-user"),
+        ));
+        let thread_id = {
+            let mut sess = session.lock().await;
+            sess.create_thread(Some("test")).id
+        };
+
+        (agent, session, thread_id, captured_tools, db)
+    }
+
+    /// Disabled tools must be excluded from the LLM's tool definition list.
+    #[tokio::test]
+    async fn test_permission_disabled_tool_excluded_from_definitions() {
+        use crate::channels::IncomingMessage;
+        use crate::tools::permissions::PermissionState;
+        use ironclaw_llm::ChatMessage;
+
+        let (agent, session, thread_id, captured_tools, db) = setup_permission_test_agent().await;
+
+        let mut settings = crate::settings::Settings::default();
+        settings
+            .tool_permissions
+            .insert("shell".to_string(), PermissionState::Disabled);
+        db.set_all_settings("test-user", &settings.to_db_map())
+            .await
+            .unwrap();
+
+        let message = IncomingMessage::new("test", "test-user", "hello");
+        let initial_messages = vec![ChatMessage::user("hello")];
+        let tenant = agent.tenant_ctx("test-user").await;
+
+        agent
+            .run_agentic_loop(&message, tenant, session, thread_id, initial_messages)
+            .await
+            .expect("dispatcher run should succeed");
+
+        let tools = captured_tools.lock().unwrap().clone();
+        assert!(
+            !tools.contains(&"shell".to_string()),
+            "Disabled tool must be excluded"
+        );
+        assert!(
+            tools.contains(&"echo".to_string()),
+            "AlwaysAllow tool must be included"
+        );
     }
 
     /// AlwaysAllow tool with Never approval requirement must be auto-approved.
-    #[test]
-    fn test_permission_always_allow_never_approval_auto_approved() {
-        use crate::agent::session::Session;
+    #[tokio::test]
+    async fn test_permission_always_allow_never_approval_auto_approved() {
+        use crate::channels::IncomingMessage;
         use crate::tools::permissions::PermissionState;
+        use ironclaw_llm::ChatMessage;
 
-        let mut session = Session::new("user-perm-1");
-        let tool_name = "http";
+        let (agent, session, thread_id, _, db) = setup_permission_test_agent().await;
 
-        // Simulate: PermissionState::AlwaysAllow and requires_approval → Never.
-        let perm = PermissionState::AlwaysAllow;
+        let mut settings = crate::settings::Settings::default();
+        settings
+            .tool_permissions
+            .insert("echo".to_string(), PermissionState::AlwaysAllow);
+        db.set_all_settings("test-user", &settings.to_db_map())
+            .await
+            .unwrap();
 
-        if perm == PermissionState::AlwaysAllow {
-            session.auto_approve_tool(tool_name);
-        }
+        let message = IncomingMessage::new("test", "test-user", "hello");
+        let initial_messages = vec![ChatMessage::user("hello")];
+        let tenant = agent.tenant_ctx("test-user").await;
 
+        agent
+            .run_agentic_loop(
+                &message,
+                tenant,
+                session.clone(),
+                thread_id,
+                initial_messages,
+            )
+            .await
+            .expect("dispatcher run should succeed");
+
+        let sess = session.lock().await;
         assert!(
-            session.is_tool_auto_approved(tool_name),
+            sess.is_tool_auto_approved("echo"),
             "AlwaysAllow with Never approval requirement must be auto-approved in session"
         );
     }
 
     /// AlwaysAllow tool with Always approval requirement is not auto-approved
     /// by v1 permission hydration.
-    ///
-    /// This verifies the v1 hard floor: ApprovalRequirement::Always is never
-    /// bypassed by session auto-approval.
-    #[test]
-    fn test_permission_always_allow_always_approval_not_auto_approved() {
-        use crate::agent::session::Session;
-        use crate::tools::ApprovalRequirement;
+    #[tokio::test]
+    async fn test_permission_always_allow_always_approval_not_auto_approved() {
+        use crate::channels::IncomingMessage;
         use crate::tools::permissions::PermissionState;
+        use ironclaw_llm::ChatMessage;
 
-        let mut session = Session::new("user-perm-2");
-        let tool_name = "restart";
+        let (agent, session, thread_id, _, db) = setup_permission_test_agent().await;
 
-        // Simulate: PermissionState::AlwaysAllow but requires_approval → Always.
-        let perm = PermissionState::AlwaysAllow;
-        let requirement = ApprovalRequirement::Always;
+        let mut settings = crate::settings::Settings::default();
+        // shell tool is AskEachTime by default and requires approval.
+        // We override it to AlwaysAllow.
+        settings
+            .tool_permissions
+            .insert("shell".to_string(), PermissionState::AlwaysAllow);
+        db.set_all_settings("test-user", &settings.to_db_map())
+            .await
+            .unwrap();
 
-        let hard_floor = matches!(requirement, ApprovalRequirement::Always);
-        if perm == PermissionState::AlwaysAllow && !hard_floor {
-            session.auto_approve_tool(tool_name);
-        }
+        let message = IncomingMessage::new("test", "test-user", "hello");
+        let initial_messages = vec![ChatMessage::user("hello")];
+        let tenant = agent.tenant_ctx("test-user").await;
 
+        agent
+            .run_agentic_loop(
+                &message,
+                tenant,
+                session.clone(),
+                thread_id,
+                initial_messages,
+            )
+            .await
+            .expect("dispatcher run should succeed");
+
+        let sess = session.lock().await;
         assert!(
-            !session.is_tool_auto_approved(tool_name),
+            !sess.is_tool_auto_approved("shell"),
             "v1 should preserve its hard-floor behavior for ApprovalRequirement::Always"
         );
     }

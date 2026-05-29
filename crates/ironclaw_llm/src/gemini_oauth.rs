@@ -934,7 +934,7 @@ pub struct GeminiOauthProvider {
     /// Captured thought signatures keyed by tool-call ID. Gemini 3.x models
     /// require these echoed back on `functionCall` parts when replaying history.
     /// Populated from responses, consumed when building the next request.
-    thought_signatures: std::sync::Mutex<HashMap<String, String>>,
+    thought_signatures: tokio::sync::Mutex<HashMap<String, String>>,
 }
 
 /// Parsed Gemini response: (completion, tool_calls, thought_signatures_by_call_id).
@@ -956,7 +956,7 @@ impl GeminiOauthProvider {
             cred_manager,
             http_client,
             last_response_meta: std::sync::Mutex::new(GeminiResponseMeta::default()),
-            thought_signatures: std::sync::Mutex::new(HashMap::new()),
+            thought_signatures: tokio::sync::Mutex::new(HashMap::new()),
         })
     }
 
@@ -1084,11 +1084,7 @@ impl GeminiOauthProvider {
     // Unused after module privatization; see `get_valid_access_token` above.
     #[allow(dead_code)]
     pub async fn count_tokens(&self, messages: &[ChatMessage]) -> Result<u32, LlmError> {
-        let sigs = self
-            .thought_signatures
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let sigs = self.thought_signatures.lock().await.clone();
         let req = Self::to_gemini_request(
             messages,
             None,
@@ -2097,11 +2093,7 @@ impl LlmProvider for GeminiOauthProvider {
     }
 
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
-        let sigs = self
-            .thought_signatures
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let sigs = self.thought_signatures.lock().await.clone();
         let req_json = Self::to_gemini_request(
             &request.messages,
             None,
@@ -2127,11 +2119,7 @@ impl LlmProvider for GeminiOauthProvider {
             Some(request.tools.as_slice())
         };
 
-        let sigs = self
-            .thought_signatures
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let sigs = self.thought_signatures.lock().await.clone();
         let req_json = Self::to_gemini_request(
             &request.messages,
             tool_defs,
@@ -2148,10 +2136,7 @@ impl LlmProvider for GeminiOauthProvider {
         // unbounded growth over long-running processes. Only keep IDs that
         // appear in the conversation history or the just-received response.
         {
-            let mut sigs = self
-                .thought_signatures
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+            let mut sigs = self.thought_signatures.lock().await;
             sigs.extend(new_sigs);
             let live_ids: std::collections::HashSet<&str> = request
                 .messages

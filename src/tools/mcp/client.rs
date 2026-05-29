@@ -80,7 +80,7 @@ pub struct McpClient {
     secrets: Option<Arc<dyn SecretsStore + Send + Sync>>,
 
     /// User ID for secrets lookup.
-    user_id: String,
+    user_id: Option<String>,
 
     /// Server configuration (for token secret name lookup).
     server_config: Option<McpServerConfig>,
@@ -138,9 +138,7 @@ impl McpClient {
             tools_cache: RwLock::new(None),
             session_manager: None,
             secrets: None,
-            // TODO(ownership): unauthenticated constructor; user_id set properly via
-            // create_client_from_config() for production paths
-            user_id: "<unset>".to_string(),
+            user_id: None,
             server_config: None,
             custom_headers: HashMap::new(),
             initialized: tokio::sync::OnceCell::new(),
@@ -180,9 +178,7 @@ impl McpClient {
             tools_cache: RwLock::new(None),
             session_manager: None,
             secrets: None,
-            // TODO(ownership): unauthenticated constructor; user_id set properly via
-            // create_client_from_config() for production paths
-            user_id: "<unset>".to_string(),
+            user_id: None,
             server_config: None,
             custom_headers: HashMap::new(),
             initialized: tokio::sync::OnceCell::new(),
@@ -242,9 +238,7 @@ impl McpClient {
             tools_cache: RwLock::new(None),
             session_manager: None,
             secrets: None,
-            // TODO(ownership): unauthenticated constructor; user_id set properly via
-            // create_client_from_config() for production paths
-            user_id: "<unset>".to_string(),
+            user_id: None,
             custom_headers: config.headers.clone(),
             initialized: tokio::sync::OnceCell::new(),
             server_config: Some(config),
@@ -296,7 +290,7 @@ impl McpClient {
             tools_cache: RwLock::new(None),
             session_manager: Some(session_manager),
             secrets: Some(secrets),
-            user_id: user_id_str,
+            user_id: Some(user_id_str),
             server_config: Some(config),
             custom_headers,
             initialized: tokio::sync::OnceCell::new(),
@@ -353,7 +347,7 @@ impl McpClient {
             tools_cache: RwLock::new(None),
             session_manager,
             secrets,
-            user_id: user_id.into(),
+            user_id: Some(user_id.into()),
             server_config,
             custom_headers,
             initialized: tokio::sync::OnceCell::new(),
@@ -437,14 +431,17 @@ impl McpClient {
         let Some(ref config) = self.server_config else {
             return Ok(None);
         };
+        let Some(ref user_id) = self.user_id else {
+            return Ok(None);
+        };
         // Try canonical (normalized) secret name first.
         let result = resolve_access_token_string_with_refresh(
             secrets.as_ref(),
-            &self.user_id,
+            user_id,
             &config.token_secret_name(),
             self.server_name.as_str(),
             || async {
-                refresh_access_token(config, secrets, &self.user_id)
+                refresh_access_token(config, secrets, user_id)
                     .await
                     .map(|token| token.access_token)
                     .map_err(|e| format!("Token refresh failed: {}", e))
@@ -462,10 +459,12 @@ impl McpClient {
         // get migrated to the canonical name. Bare get_decrypted (no
         // refresh) is intentional: wiring refresh through the legacy
         // naming scheme adds complexity for a self-healing compat path.
-        if let Some(legacy_name) = config.legacy_token_secret_name()
-            && let Ok(decrypted) = secrets.get_decrypted(&self.user_id, &legacy_name).await
-        {
-            return Ok(Some(decrypted.expose().to_string()));
+        if let Some(ref user_id) = self.user_id {
+            if let Some(legacy_name) = config.legacy_token_secret_name()
+                && let Ok(decrypted) = secrets.get_decrypted(user_id, &legacy_name).await
+            {
+                return Ok(Some(decrypted.expose().to_string()));
+            }
         }
 
         Ok(None)
@@ -491,8 +490,9 @@ impl McpClient {
             }
         }
         if let Some(ref session_manager) = self.session_manager
+            && let Some(ref user_id) = self.user_id
             && let Some(session_id) = session_manager
-                .get_session_id(&self.user_id, &self.server_name)
+                .get_session_id(user_id, &self.server_name)
                 .await
         {
             headers.insert("Mcp-Session-Id".to_string(), session_id);
@@ -506,12 +506,12 @@ impl McpClient {
     /// reports that the current session ID is no longer valid.
     async fn reinitialize_session(&self) -> Result<InitializeResult, ToolError> {
         if let Some(ref session_manager) = self.session_manager {
-            session_manager
-                .terminate(&self.user_id, &self.server_name)
-                .await;
-            session_manager
-                .get_or_create(&self.user_id, &self.server_name, &self.server_url)
-                .await;
+            if let Some(ref user_id) = self.user_id {
+                session_manager.terminate(user_id, &self.server_name).await;
+                session_manager
+                    .get_or_create(user_id, &self.server_name, &self.server_url)
+                    .await;
+            }
         }
 
         let request = McpRequest::initialize(self.next_request_id());
@@ -539,9 +539,11 @@ impl McpClient {
             })?;
 
         if let Some(ref session_manager) = self.session_manager {
-            session_manager
-                .mark_initialized(&self.user_id, &self.server_name)
-                .await;
+            if let Some(ref user_id) = self.user_id {
+                session_manager
+                    .mark_initialized(user_id, &self.server_name)
+                    .await;
+            }
         }
 
         let notification = McpRequest::initialized_notification();
@@ -602,12 +604,13 @@ impl McpClient {
                     if attempt == 0
                         && let Some(ref secrets) = self.secrets
                         && let Some(ref config) = self.server_config
+                        && let Some(ref user_id) = self.user_id
                     {
                         tracing::debug!(
                             "MCP token expired, attempting refresh for '{}'",
                             self.server_name
                         );
-                        match refresh_access_token(config, secrets, &self.user_id).await {
+                        match refresh_access_token(config, secrets, user_id).await {
                             Ok(_) => {
                                 tracing::info!("MCP token refreshed for '{}'", self.server_name);
                                 continue;
@@ -657,8 +660,9 @@ impl McpClient {
             .initialized
             .get_or_try_init(|| async {
                 if let Some(ref session_manager) = self.session_manager
+                    && let Some(ref user_id) = self.user_id
                     && session_manager
-                        .is_initialized(&self.user_id, &self.server_name)
+                        .is_initialized(user_id, &self.server_name)
                         .await
                 {
                     return Ok(InitializeResult::default());
@@ -1064,7 +1068,7 @@ mod tests {
         assert_eq!(client.server_name(), "localhost");
         assert!(client.session_manager.is_none());
         assert!(client.secrets.is_none());
-        assert_eq!(client.user_id, "<unset>");
+        assert_eq!(client.user_id, None);
     }
 
     #[test]
@@ -1072,7 +1076,7 @@ mod tests {
         let client = McpClient::new_with_name("my-server", "http://localhost:8080");
         assert_eq!(client.server_name(), "my_server");
         assert_eq!(client.server_url(), "http://localhost:8080");
-        assert_eq!(client.user_id, "<unset>");
+        assert_eq!(client.user_id, None);
         assert!(client.session_manager.is_none());
         assert!(client.secrets.is_none());
     }
@@ -1146,7 +1150,7 @@ mod tests {
         let cloned = client.clone();
         assert_eq!(cloned.server_url(), "http://localhost:5555");
         assert_eq!(cloned.server_name(), "cloned_server");
-        assert_eq!(cloned.user_id, "<unset>");
+        assert_eq!(cloned.user_id, None);
         assert_eq!(cloned.next_id.load(Ordering::SeqCst), 3);
     }
 

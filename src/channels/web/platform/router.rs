@@ -73,8 +73,9 @@ use crate::channels::web::platform::static_files::{
 // backward-compat re-export shim waiting on stage 6 deletion.
 use crate::channels::web::features::chat::{
     chat_approval_handler, chat_auth_cancel_handler, chat_auth_token_handler, chat_events_handler,
-    chat_gate_resolve_handler, chat_history_handler, chat_new_thread_handler, chat_send_handler,
-    chat_threads_handler, chat_ws_handler, chat_upload_handler, chat_rollback_handler,
+    chat_gate_resolve_handler, chat_history_handler, chat_new_thread_handler,
+    chat_rollback_handler, chat_send_handler, chat_threads_handler, chat_upload_handler,
+    chat_ws_handler,
 };
 use crate::channels::web::features::extensions::{
     extensions_activate_handler, extensions_install_handler, extensions_list_handler,

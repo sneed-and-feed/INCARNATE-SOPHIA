@@ -3190,30 +3190,47 @@ pub struct RollbackRequest {
 }
 
 pub async fn chat_upload_handler(
-    axum::extract::State(_state): axum::extract::State<std::sync::Arc<crate::channels::web::GatewayState>>,
+    axum::extract::State(_state): axum::extract::State<
+        std::sync::Arc<crate::channels::web::GatewayState>,
+    >,
     mut multipart: axum::extract::Multipart,
 ) -> Result<axum::Json<serde_json::Value>, (axum::http::StatusCode, String)> {
     let mut uploaded_files = Vec::new();
 
     while let Some(field) = multipart.next_field().await.map_err(|e| {
-        (axum::http::StatusCode::BAD_REQUEST, format!("Multipart error: {}", e))
+        (
+            axum::http::StatusCode::BAD_REQUEST,
+            format!("Multipart error: {}", e),
+        )
     })? {
         let name = field.name().unwrap_or("file").to_string();
         let file_name = field.file_name().unwrap_or("upload.bin").to_string();
-        let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
+        let content_type = field
+            .content_type()
+            .unwrap_or("application/octet-stream")
+            .to_string();
         let data = field.bytes().await.map_err(|e| {
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to read field: {}", e))
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to read field: {}", e),
+            )
         })?;
 
         // Save to local uploads directory
         let upload_dir = std::path::Path::new("uploads");
         tokio::fs::create_dir_all(upload_dir).await.map_err(|e| {
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create uploads dir: {}", e))
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to create uploads dir: {}", e),
+            )
         })?;
 
         let file_path = upload_dir.join(&file_name);
         tokio::fs::write(&file_path, data).await.map_err(|e| {
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write file: {}", e))
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to write file: {}", e),
+            )
         })?;
 
         let absolute_path = std::env::current_dir()
@@ -3235,7 +3252,9 @@ pub async fn chat_upload_handler(
 }
 
 pub async fn chat_rollback_handler(
-    axum::extract::State(state): axum::extract::State<std::sync::Arc<crate::channels::web::GatewayState>>,
+    axum::extract::State(state): axum::extract::State<
+        std::sync::Arc<crate::channels::web::GatewayState>,
+    >,
     crate::channels::web::auth::AuthenticatedUser(user): crate::channels::web::auth::AuthenticatedUser,
     axum::Json(req): axum::Json<RollbackRequest>,
 ) -> Result<axum::http::StatusCode, (axum::http::StatusCode, String)> {
@@ -3250,14 +3269,22 @@ pub async fn chat_rollback_handler(
         .await
         .unwrap_or(false);
     if !owned {
-        return Err((axum::http::StatusCode::NOT_FOUND, "Thread not found".to_string()));
+        return Err((
+            axum::http::StatusCode::NOT_FOUND,
+            "Thread not found".to_string(),
+        ));
     }
 
     // Delete messages in thread
     store
         .delete_conversation_messages(req.thread_id)
         .await
-        .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to delete messages: {}", e)))?;
+        .map_err(|e| {
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to delete messages: {}", e),
+            )
+        })?;
 
     // Truncate daily memory file
     if let Some(workspace) = state.workspace.as_ref() {
@@ -3272,4 +3299,3 @@ pub async fn chat_rollback_handler(
 
     Ok(axum::http::StatusCode::OK)
 }
-

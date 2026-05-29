@@ -104,6 +104,6 @@ pub mod prelude {
     pub use ironclaw_safety::{SanitizedOutput, Sanitizer};
 }
 
+pub mod operators;
 pub mod sneed_engine;
 pub mod spectral_oracle;
-pub mod operators;

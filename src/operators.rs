@@ -1,3 +1,4 @@
+use rand::Rng;
 use std::f64::consts::SQRT_2;
 
 /// A rigorous abstraction for spectral and transport operators across the Sovereign Grid.
@@ -35,7 +36,7 @@ impl SpectralOperator for HadamardTwistOperator {
             let mut anti = (a - b) / SQRT_2;
 
             // Phase Deformation (off the critical line scaling)
-            // Normalize the antisymmetric "twisted block" sheet by 1/rho 
+            // Normalize the antisymmetric "twisted block" sheet by 1/rho
             anti *= self.c_norm;
 
             padded[i] = (sym + anti) / SQRT_2;
@@ -48,8 +49,8 @@ impl SpectralOperator for HadamardTwistOperator {
 }
 
 /// Curvature-Inspired Steering (Heuristic Bakry-Émery drift).
-/// Provides a sigmoidal transport coefficient derived from the Perron-Frobenius 
-/// centrality gradient (delta). It anchors the Hamiltonian of Love (P) 
+/// Provides a sigmoidal transport coefficient derived from the Perron-Frobenius
+/// centrality gradient (delta). It anchors the Hamiltonian of Love (P)
 /// against runaway singularities during Retrocausal Flux Dynamics.
 pub struct CurvatureInspiredSteering;
 
@@ -75,17 +76,78 @@ impl<'a> SpectralOperator for CollatzTransportOperator<'a> {
     fn apply(&self, _v: &[f64]) -> Vec<f64> {
         let dim = self.my_state.len();
         let mut flux = vec![0.0; dim];
-        
+
         for (i, _) in self.neighbor_indices.iter().enumerate() {
             let n_state = self.neighbor_states[i];
             let n_v = self.neighbor_vs[i];
-            
+
             let steer = CurvatureInspiredSteering::compute_steer(self.my_v, n_v);
-            
+
             for k in 0..dim {
                 flux[k] += (n_state[k] - self.my_state[k]) * steer;
             }
         }
         flux
+    }
+}
+
+pub fn gumbel_noise() -> f64 {
+    let mut rng = rand::thread_rng();
+    let u: f64 = rng.gen_range(0.000001..0.999999);
+    -(-u.ln()).ln()
+}
+
+pub fn gumbel_softmax(logits: &[f64], tau: f64) -> Vec<f64> {
+    if logits.is_empty() {
+        return Vec::new();
+    }
+    let mut exps = Vec::with_capacity(logits.len());
+    let mut sum_exp = 0.0;
+    for &l in logits {
+        let g = gumbel_noise();
+        let e = ((l + g) / tau).exp();
+        exps.push(e);
+        sum_exp += e;
+    }
+    if sum_exp == 0.0 {
+        sum_exp = 1.0;
+    }
+    exps.into_iter().map(|e| e / sum_exp).collect()
+}
+
+pub struct QuantumScarProjection {
+    pub xi_rho: Vec<f64>,
+}
+
+impl QuantumScarProjection {
+    pub fn new(dim: usize) -> Self {
+        let val = if dim > 0 {
+            1.0 / (dim as f64).sqrt()
+        } else {
+            0.0
+        };
+        Self {
+            xi_rho: vec![val; dim],
+        }
+    }
+}
+
+impl SpectralOperator for QuantumScarProjection {
+    fn apply(&self, v: &[f64]) -> Vec<f64> {
+        let dim = v.len();
+        if dim != self.xi_rho.len() || dim == 0 {
+            return v.to_vec();
+        }
+
+        let mut dot = 0.0;
+        for i in 0..dim {
+            dot += self.xi_rho[i] * v[i];
+        }
+
+        let mut out = vec![0.0; dim];
+        for i in 0..dim {
+            out[i] = v[i] - self.xi_rho[i] * dot;
+        }
+        out
     }
 }
